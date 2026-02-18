@@ -1,0 +1,22 @@
+{
+  "name": "advhub-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AdvHub Dashboard - Frontend Next.js + Backend NestJS",
+  "scripts": {
+    "install:all": "npm install --prefix front && npm install --prefix back",
+    "dev": "concurrently \"npm run dev --prefix front\" \"npm run start:dev --prefix back\"",
+    "dev:front": "npm run dev --prefix front",
+    "dev:back": "npm run start:dev --prefix back",
+    "build": "npm run build --prefix front && npm run build --prefix back",
+    "build:front": "npm run build --prefix front",
+    "build:back": "npm run build --prefix back",
+    "start": "concurrently \"npm run start --prefix front\" \"npm run start:prod --prefix back\"",
+    "lint": "npm run lint --prefix front && npm run lint --prefix back",
+    "lint:front": "npm run lint --prefix front",
+    "lint:back": "npm run lint --prefix back"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
