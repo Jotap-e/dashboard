@@ -1,0 +1,196 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
+
+interface DealNowUpdate {
+  deal_id: string;
+  is_now: boolean;
+  updated_at: string;
+  owner_id?: string;
+}
+
+interface DealNowData {
+  deal_id: string;
+  is_now: boolean;
+  updated_at: string;
+  owner_id?: string;
+  vendedor?: string;
+}
+
+interface MetaDiaria {
+  vendedor_id: string;
+  vendedor_nome: string;
+  meta: number;
+  valor_acumulado: number;
+  updated_at: string;
+}
+
+interface UseWebSocketOptions {
+  room: 'painel' | 'controle';
+  onDealUpdate?: (data: DealNowUpdate) => void;
+  onDashboardUpdated?: (state: Array<[string, DealNowData]>) => void; // Para painel: recebe estado completo
+  onControleStateUpdated?: (state: Array<[string, string]>) => void; // Para controle: recebe estado de vendedores (vendedor_id -> deal_id)
+  onMetasUpdated?: (state: Array<[string, MetaDiaria]>) => void; // Recebe estado de metas (vendedor_id -> MetaDiaria)
+  onConnected?: () => void;
+  onDisconnected?: () => void;
+  onError?: (error: any) => void;
+}
+
+export function useWebSocket({
+  room,
+  onDealUpdate,
+  onDashboardUpdated,
+  onControleStateUpdated,
+  onMetasUpdated,
+  onConnected,
+  onDisconnected,
+  onError,
+}: UseWebSocketOptions) {
+  const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Usar refs para callbacks para evitar recriação do useEffect
+  const onDealUpdateRef = useRef(onDealUpdate);
+  const onDashboardUpdatedRef = useRef(onDashboardUpdated);
+  const onControleStateUpdatedRef = useRef(onControleStateUpdated);
+  const onMetasUpdatedRef = useRef(onMetasUpdated);
+  const onConnectedRef = useRef(onConnected);
+  const onDisconnectedRef = useRef(onDisconnected);
+  const onErrorRef = useRef(onError);
+
+  // Atualizar refs quando callbacks mudarem
+  useEffect(() => {
+    onDealUpdateRef.current = onDealUpdate;
+    onDashboardUpdatedRef.current = onDashboardUpdated;
+    onControleStateUpdatedRef.current = onControleStateUpdated;
+    onMetasUpdatedRef.current = onMetasUpdated;
+    onConnectedRef.current = onConnected;
+    onDisconnectedRef.current = onDisconnected;
+    onErrorRef.current = onError;
+  }, [onDealUpdate, onDashboardUpdated, onControleStateUpdated, onMetasUpdated, onConnected, onDisconnected, onError]);
+
+  useEffect(() => {
+    // Criar conexão WebSocket
+    const socket = io('http://localhost:3001/deals', {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+    });
+
+    socketRef.current = socket;
+
+    // Eventos de conexão
+    socket.on('connect', () => {
+      console.log(`🔌 [WebSocket] Conectado ao servidor (${room})`);
+      setIsConnected(true);
+      setError(null);
+      
+      // Entrar na sala apropriada
+      if (room === 'painel') {
+        socket.emit('join-painel');
+      } else if (room === 'controle') {
+        socket.emit('join-controle');
+      }
+      
+      onConnected?.();
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`🔌 [WebSocket] Desconectado do servidor (${room})`);
+      setIsConnected(false);
+      onDisconnectedRef.current?.();
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error(`❌ [WebSocket] Erro de conexão (${room}):`, err);
+      setError('Erro ao conectar com o servidor WebSocket');
+      onErrorRef.current?.(err);
+    });
+
+    // Evento de confirmação de entrada na sala
+    socket.on('joined', (data: { room: string }) => {
+      console.log(`✅ [WebSocket] Entrou na sala: ${data.room}`);
+    });
+
+    // Evento de estado completo atualizado (apenas para painel)
+    if (room === 'painel') {
+      socket.on('dashboardUpdated', (state: Array<[string, DealNowData]>) => {
+        console.log(`📡 [WebSocket] Estado completo recebido (painel):`, state.length, 'deals');
+        onDashboardUpdatedRef.current?.(state);
+      });
+
+      // Evento de atualização individual de deal (mantido para compatibilidade)
+      socket.on('deal-now-updated', (data: DealNowUpdate) => {
+        console.log(`📡 [WebSocket] Atualização individual recebida:`, data);
+        onDealUpdateRef.current?.(data);
+      });
+    }
+
+    // Evento de estado atualizado de vendedores (apenas para controle)
+    if (room === 'controle') {
+      socket.on('controleStateUpdated', (state: Array<[string, string]>) => {
+        console.log(`📡 [WebSocket] Estado de vendedores recebido (controle):`, state.length, 'vendedores');
+        onControleStateUpdatedRef.current?.(state);
+      });
+
+      // Evento de confirmação de envio
+      socket.on('deal-now-update-sent', (data: { success: boolean; deal_id: string }) => {
+        console.log(`✅ [WebSocket] Atualização enviada:`, data);
+      });
+    }
+
+    // Evento de atualização de metas (para ambas as salas)
+    socket.on('metasUpdated', (state: Array<[string, MetaDiaria]>) => {
+      console.log(`📡 [WebSocket] Estado de metas recebido (${room}):`, state.length, 'metas');
+      onMetasUpdatedRef.current?.(state);
+    });
+
+    // Limpeza ao desmontar
+    return () => {
+      console.log(`🔌 [WebSocket] Desconectando (${room})`);
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+      socket.off('joined');
+      socket.off('dashboardUpdated');
+      socket.off('deal-now-updated');
+      socket.off('controleStateUpdated');
+      socket.off('metasUpdated');
+      socket.off('deal-now-update-sent');
+      socket.off('meta-update-sent');
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [room]); // Removidas as dependências dos callbacks para evitar recriação
+
+  // Função para enviar atualização de deal (apenas para controle)
+  const sendDealUpdate = useCallback((data: DealNowUpdate) => {
+    if (socketRef.current && socketRef.current.connected && room === 'controle') {
+      console.log(`📤 [WebSocket] Enviando atualização de deal:`, data);
+      socketRef.current.emit('update-deal-now', data);
+    } else {
+      console.warn(`⚠️ [WebSocket] Não é possível enviar: socket não conectado ou não é sala controle`);
+    }
+  }, [room]);
+
+  // Função para enviar atualização de meta (apenas para controle)
+  const sendMetaUpdate = useCallback((data: { vendedor_id: string; vendedor_nome: string; meta: number }) => {
+    if (socketRef.current && socketRef.current.connected && room === 'controle') {
+      console.log(`📤 [WebSocket] Enviando atualização de meta:`, data);
+      socketRef.current.emit('update-meta', data);
+    } else {
+      console.warn(`⚠️ [WebSocket] Não é possível enviar meta: socket não conectado ou não é sala controle`);
+    }
+  }, [room]);
+
+  return {
+    isConnected,
+    error,
+    sendDealUpdate,
+    sendMetaUpdate,
+    socket: socketRef.current,
+  };
+}

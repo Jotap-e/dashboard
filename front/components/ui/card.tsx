@@ -8,7 +8,7 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'rounded-lg border border-white/20 bg-transparent text-card-foreground',
+      'rounded-lg border border-white/20 bg-[#1A1A1A] text-card-foreground',
       className
     )}
     {...props}
@@ -19,10 +19,11 @@ Card.displayName = 'Card';
 const CardHeader = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('flex flex-col space-y-1 p-4', className)}
+    className={cn('flex flex-col', className)}
+    style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)', ...style }}
     {...props}
   />
 ));
@@ -31,13 +32,14 @@ CardHeader.displayName = 'CardHeader';
 const CardTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <h3
     ref={ref}
     className={cn(
-      'text-2xl font-semibold leading-none tracking-tight',
+      'font-semibold leading-none tracking-tight',
       className
     )}
+    style={{ fontSize: 'clamp(1rem, 2vw, 1.5rem)', ...style }}
     {...props}
   />
 ));
@@ -46,10 +48,11 @@ CardTitle.displayName = 'CardTitle';
 const CardDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn('text-sm text-muted-foreground', className)}
+    className={cn('text-muted-foreground', className)}
+    style={{ fontSize: 'clamp(0.75rem, 1.2vw, 1rem)', ...style }}
     {...props}
   />
 ));
@@ -58,8 +61,13 @@ CardDescription.displayName = 'CardDescription';
 const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn('p-4 pt-0', className)} {...props} />
+>(({ className, style, ...props }, ref) => (
+  <div 
+    ref={ref} 
+    className={cn('pt-0', className)} 
+    style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)', paddingTop: 0, ...style }}
+    {...props} 
+  />
 ));
 CardContent.displayName = 'CardContent';
 

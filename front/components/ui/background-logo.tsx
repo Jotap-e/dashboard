@@ -10,19 +10,23 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
   return (
     <div
       className={cn(
-        'fixed inset-0 flex items-center justify-center bg-[#1A1A1A]',
+        'fixed inset-0 flex items-center justify-center bg-[#1A1A1A] overflow-hidden',
         className
       )}
     >
       <div
         className="relative flex items-center justify-center"
         style={{
-          width: 'clamp(400px, 70vw, 1200px)',
-          height: 'clamp(400px, 70vw, 1200px)',
+          // Responsivo: ajusta tamanho baseado na viewport (reduzido em 25% total: 15% + 10%)
+          // Em telas pequenas: mínimo 76.5vw (85vw * 0.9)
+          // Em telas médias: 65vw (72.25vw * 0.9, arredondado)
+          // Em telas grandes: máximo 53.5vw (59.5vw * 0.9, arredondado) ou 1070px (1190px * 0.9, arredondado)
+          width: 'clamp(76.5vw, 65vw, min(53.5vw, 1070px))',
+          height: 'clamp(76.5vw, 65vw, min(53.5vw, 1070px))',
         }}
       >
         <div
-          className="w-full h-full opacity-25"
+          className="w-full h-full opacity-20 md:opacity-25"
           style={{
             filter: 'brightness(1.2) grayscale(100%)',
           }}
@@ -69,3 +73,5 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
     </div>
   );
 }
+
+export default BackgroundLogo;
