@@ -11,3 +11,5 @@ coverage
 test
 *.spec.ts
 *.test.ts
+README-RENDER.md
+render.yaml
