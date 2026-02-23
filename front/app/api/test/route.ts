@@ -1,7 +1,8 @@
 // Exemplo de API Route do Next.js que chama o backend
 export async function GET() {
   try {
-    const response = await fetch('http://localhost:3002/api/health', {
+    const backendHost = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
+    const response = await fetch(`${backendHost}/api/health`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

@@ -97,7 +97,10 @@ export function useWebSocket({
 
   useEffect(() => {
     // Criar conexão WebSocket
-    const socket = io('http://localhost:3002/deals', {
+    // Usar variável de ambiente ou fallback para localhost
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
+    const wsUrl = backendUrl.replace(/^http/, 'ws').replace(/^https/, 'wss');
+    const socket = io(`${wsUrl}/deals`, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
