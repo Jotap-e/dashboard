@@ -10,8 +10,9 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
   
   // Habilitar CORS para comunicação com o frontend
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: frontendUrl,
     credentials: true,
   });
 
@@ -24,7 +25,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3002;
   await app.listen(port);
   
-  console.log(`🚀 Backend rodando em http://localhost:${port}/api`);
+  console.log(`🚀 Backend rodando na porta ${port}`);
+  console.log(`📡 API disponível em http://localhost:${port}/api`);
   console.log(`🔌 WebSocket disponível em ws://localhost:${port}/deals`);
+  console.log(`🌐 CORS configurado para: ${frontendUrl}`);
 }
 bootstrap();
