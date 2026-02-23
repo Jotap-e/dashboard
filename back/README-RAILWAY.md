@@ -51,13 +51,15 @@ Configure as seguintes variáveis de ambiente no Railway:
 3. Selecione "Deploy from GitHub repo" (recomendado) ou "Empty Project"
 4. Se usar GitHub:
    - Conecte seu repositório
-   - **IMPORTANTE:** Configure o **Root Directory** como `back/` nas configurações do serviço
+   - **CRÍTICO:** Após criar o serviço, vá em **Settings** → **Source**
+   - Configure o **Root Directory** como `back` (sem a barra final)
+   - Isso garante que o Railway execute comandos apenas no diretório do backend
    - Railway detectará automaticamente que é um projeto Node.js/NestJS
    - O Railway instalará dependências com `pnpm install` (ou `npm install`)
-   - O Railway executará `pnpm run build` automaticamente
+   - O Railway executará `pnpm run build` automaticamente (conforme `railway.json`)
    - O Railway iniciará com `pnpm run start:prod`
-5. Configure as variáveis de ambiente no dashboard do Railway
-6. O deploy será iniciado automaticamente
+5. Configure as variáveis de ambiente no dashboard do Railway (Settings → Variables)
+6. O deploy será iniciado automaticamente após salvar as configurações
 
 ### Método 2: Via CLI do Railway
 
@@ -94,15 +96,27 @@ Após o deploy, o Railway fornecerá uma URL pública. Você pode verificar:
 
 ## Troubleshooting
 
+### Erro: "next: not found" ou build falha tentando compilar frontend
+**Causa:** O Railway está executando o build na raiz do repositório em vez do diretório `back/`
+
+**Solução:**
+1. Vá em **Settings** → **Source** no dashboard do Railway
+2. Configure o **Root Directory** como `back` (sem barra final)
+3. Salve e faça um novo deploy
+4. O Railway agora executará apenas os comandos do backend
+
 ### Build falha
-- Verifique se todas as dependências estão no `package.json`
-- Confirme que o script `build` está configurado corretamente
+- Verifique se todas as dependências estão no `package.json` do backend
+- Confirme que o script `build` está configurado corretamente em `back/package.json`
+- Verifique os logs completos no dashboard do Railway para ver o erro exato
 
 ### Aplicação não inicia
 - Verifique os logs no dashboard do Railway
 - Confirme que todas as variáveis de ambiente estão configuradas
 - Verifique se o MongoDB está acessível da Railway
+- Confirme que o script `start:prod` está funcionando localmente
 
 ### CORS errors
 - Configure `FRONTEND_URL` com a URL exata do seu frontend (incluindo `https://`)
 - Verifique se o frontend está fazendo requisições para a URL correta do Railway
+- Confirme que o CORS está habilitado no `main.ts` do backend
