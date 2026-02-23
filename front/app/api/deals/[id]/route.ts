@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(
   request: NextRequest,
@@ -17,8 +18,8 @@ export async function GET(
       );
     }
 
-    // Construir URL do backend - padrão: localhost:3002
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    // Construir URL do backend usando função helper
+    const backendHost = getBackendUrl();
     const backendUrl = `${backendHost}/api/deals/${dealId}`;
 
     console.log('🔄 [API ROUTE] Fazendo proxy para:', backendUrl);

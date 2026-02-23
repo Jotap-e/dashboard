@@ -1,6 +1,8 @@
+import { getBackendUrl } from '@/lib/config/backend';
+
 export async function POST() {
   try {
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
 
     const res = await fetch(`${backendHost}/api/finalizar-dia`, {
       method: 'POST',

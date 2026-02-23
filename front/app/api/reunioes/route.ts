@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(request: NextRequest) {
   try {
@@ -6,7 +7,7 @@ export async function GET(request: NextRequest) {
     const data = searchParams.get('data') ?? new Date().toISOString().split('T')[0];
     const vendedorId = searchParams.get('vendedorId');
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const url = new URL(`${backendHost}/api/reunioes`);
     url.searchParams.set('data', data);
     if (vendedorId) url.searchParams.set('vendedorId', vendedorId);
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const backendUrl = `${backendHost}/api/reunioes`;
 
     const response = await fetch(backendUrl, {

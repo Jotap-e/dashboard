@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('📅 [API ROUTE] Recebendo requisição /api/deals/sdr/agendamentos');
 
-    // Construir URL do backend - padrão: localhost:3002
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    // Construir URL do backend usando função helper
+    const backendHost = getBackendUrl();
     
     // Garantir que backendHost não termine com /api para evitar duplicação
     const baseUrl = backendHost.endsWith('/api') 

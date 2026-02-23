@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function PUT(
   request: NextRequest,
@@ -15,7 +16,7 @@ export async function PUT(
 
     const body = await request.json();
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const backendUrl = `${backendHost}/api/forecasts/${encodeURIComponent(id)}`;
 
     const response = await fetch(backendUrl, {
@@ -56,7 +57,7 @@ export async function DELETE(
       );
     }
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const backendUrl = `${backendHost}/api/forecasts/${encodeURIComponent(id)}`;
 
     const response = await fetch(backendUrl, {

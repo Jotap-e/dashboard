@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const url = new URL(`${backendHost}/api/forecasts`);
     url.searchParams.set('closerNome', closerNome);
     if (dataCriacao) url.searchParams.set('dataCriacao', dataCriacao);
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const backendUrl = `${backendHost}/api/forecasts`;
 
     const response = await fetch(backendUrl, {

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function POST(request: NextRequest) {
   try {
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
     const url = `${backendHost}/api/rd-token/refresh`;
 
     const response = await fetch(url, {

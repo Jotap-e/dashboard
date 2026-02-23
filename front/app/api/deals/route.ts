@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +15,8 @@ export async function GET(request: NextRequest) {
     console.log('🔄 [API ROUTE] Query params:', { owner_id: ownerId, pipeline_id: pipelineId, page, size });
     console.log('🔄 [API ROUTE] Request URL:', request.url);
 
-    // Construir URL do backend - padrão: localhost:3002
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    // Construir URL do backend usando função helper
+    const backendHost = getBackendUrl();
     const backendUrl = new URL(`${backendHost}/api/deals`);
     if (ownerId) {
       backendUrl.searchParams.append('owner_id', ownerId);

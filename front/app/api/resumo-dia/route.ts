@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { VENDEDOR_IDS, getVendedorTipo } from '@/lib/utils/vendedores';
+import { getBackendUrl } from '@/lib/config/backend';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get('data') ?? new Date().toISOString().split('T')[0];
 
-    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendHost = getBackendUrl();
 
     // IDs dos closers para contagem via GET by vendedorId (apenas para finalizar-dia)
     const closerIds = Object.entries(VENDEDOR_IDS)

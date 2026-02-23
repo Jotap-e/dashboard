@@ -101,7 +101,11 @@ Certifique-se de que o backend está configurado para aceitar requisições do f
 **Solução:**
 1. Vá em **Settings** → **Environment Variables** no Vercel
 2. Configure `NEXT_PUBLIC_BACKEND_URL` com a URL completa do backend (ex: `https://seu-backend.onrender.com`)
-3. Faça um novo deploy
+   - ⚠️ **IMPORTANTE:** Não inclua `/api` no final, apenas a URL base
+   - Exemplo correto: `https://seu-backend.onrender.com`
+   - Exemplo incorreto: `https://seu-backend.onrender.com/api`
+3. Faça um novo deploy (as variáveis de ambiente são injetadas no build)
+4. Verifique se a variável está disponível em todos os ambientes (Production, Preview, Development)
 
 ### Erro: CORS no backend
 **Causa:** Backend não está configurado para aceitar requisições do frontend
