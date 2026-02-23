@@ -5,7 +5,7 @@
 export interface Forecast {
   id: string;
   vendedorId: string;
-  vendedorNome: string;
+  closerNome: string;
   clienteNome: string;
   clienteNumero: string;
   data: string; // Data no formato YYYY-MM-DD

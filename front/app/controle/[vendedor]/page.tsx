@@ -342,7 +342,7 @@ export default function ControlePage() {
     const forecast: Forecast = {
       id: `forecast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       vendedorId: currentOwnerId,
-      vendedorNome: vendedorAtual,
+      closerNome: vendedorAtual,
       clienteNome: forecastData.clienteNome,
       clienteNumero: forecastData.clienteNumero,
       data: forecastData.data,
@@ -785,11 +785,15 @@ export default function ControlePage() {
 
       // Enviar atualização via WebSocket para a página de painel (após confirmação da rota)
       if (wsConnected && apiCallSuccess) {
+        const negociacao = negociacoesDoVendedor.find(n => n.id === negociacaoId);
         const updateData = {
           deal_id: negociacaoId,
           is_now: true,
           updated_at: new Date().toISOString(),
           owner_id: ownerId,
+          vendedor_nome: vendedorAtual,
+          cliente_nome: negociacao?.cliente || 'Cliente',
+          cliente_numero: negociacao?.numero,
         };
         console.log('📤 [FRONT] Enviando atualização via WebSocket:', updateData);
         sendDealUpdate(updateData);
@@ -829,7 +833,7 @@ export default function ControlePage() {
   return (
     <>
       <BackgroundLogo />
-      <div className="relative z-10 min-h-screen flex flex-col w-full max-w-[100vw] overflow-x-hidden" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)' }}>
+      <div className="relative z-10 min-h-screen flex flex-col w-full min-w-0 max-w-full" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)' }}>
         {/* Header */}
         <header className="flex-shrink-0 flex items-center justify-end mb-3 md:mb-4" style={{ paddingBottom: 'clamp(0.25rem, 0.5vw, 0.5rem)' }}>
           {/* Dropdown do vendedor */}
@@ -901,7 +905,7 @@ export default function ControlePage() {
             <div className="mb-3 md:mb-4">
               <ForecastForm
                 negociacao={negociacaoSelecionadaParaForecast}
-                vendedorNome={vendedorAtual}
+                closerNome={vendedorAtual}
                 vendedorId={ownerId || ''}
                 onSave={handleSaveForecast}
                 onCancel={handleCancelForecast}
@@ -931,10 +935,9 @@ export default function ControlePage() {
             </div>
           ) : (
             <div 
-              className="grid gap-2 md:gap-3 lg:gap-4 w-full" 
+              className="grid gap-2 md:gap-3 lg:gap-4 w-full"
               style={{ 
-                gridTemplateColumns: 'repeat(auto-fill, minmax(clamp(240px, 30vw, 360px), 1fr))',
-                // Em telas muito grandes, limita o número máximo de colunas para melhor legibilidade
+                gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
                 maxWidth: '100%',
               }}
             >

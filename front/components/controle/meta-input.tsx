@@ -77,7 +77,7 @@ export function MetaInput({ vendedorNome, vendedorId, metaAtual, valorAcumulado 
       <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 0.875rem)', paddingTop: 0 }}>
         {!isEditing ? (
           <div className="space-y-2 md:space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <p className="text-[#CCCCCC] mb-0.5 md:mb-1" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
                   Meta atual:
@@ -91,7 +91,7 @@ export function MetaInput({ vendedorNome, vendedorId, metaAtual, valorAcumulado 
                   setMeta(metaAtual ? formatCurrencyDisplay(metaAtual) : '');
                   setIsEditing(true);
                 }}
-                className="bg-[#fed094] hover:bg-[#fed094]/80 text-black flex-shrink-0"
+                className="bg-[#fed094] hover:bg-[#fed094]/80 text-black flex-shrink-0 w-full sm:w-auto self-start sm:self-auto"
                 style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)', padding: 'clamp(0.5rem, 1vw, 0.625rem) clamp(0.75rem, 1.5vw, 1.25rem)' }}
               >
                 {metaAtual ? 'Editar' : 'Definir Meta'}

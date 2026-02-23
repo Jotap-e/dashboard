@@ -8,7 +8,9 @@ interface DealNowUpdate {
   is_now: boolean;
   updated_at: string;
   owner_id?: string;
-  cliente_nome?: string; // Nome do cliente para salvar reunião
+  vendedor_nome?: string; // Nome do vendedor responsável pelo controle
+  cliente_nome?: string; // Nome do cliente (da deal)
+  cliente_numero?: string; // Telefone do cliente
 }
 
 interface DealNowData {
@@ -31,7 +33,7 @@ interface MetaDiaria {
 interface Forecast {
   id: string;
   vendedorId: string;
-  vendedorNome: string;
+  closerNome: string;
   clienteNome: string;
   clienteNumero: string;
   data: string;
@@ -233,12 +235,23 @@ export function useWebSocket({
     }
   }, [room]);
 
+  // Função para enviar remoção de forecast (apenas para controle)
+  const sendForecastDelete = useCallback((forecastId: string, vendedorId: string) => {
+    if (socketRef.current && socketRef.current.connected && room === 'controle') {
+      console.log(`📤 [WebSocket] Enviando remoção de forecast:`, forecastId);
+      socketRef.current.emit('delete-forecast', { forecastId, vendedorId });
+    } else {
+      console.warn(`⚠️ [WebSocket] Não é possível enviar delete forecast: socket não conectado ou não é sala controle`);
+    }
+  }, [room]);
+
   return {
     isConnected,
     error,
     sendDealUpdate,
     sendMetaUpdate,
     sendForecastUpdate,
+    sendForecastDelete,
     socket: socketRef.current,
   };
 }

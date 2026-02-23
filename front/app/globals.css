@@ -86,8 +86,97 @@
   * {
     @apply border-border;
   }
+  html {
+    overflow-x: auto;
+  }
   body {
     @apply bg-background text-foreground;
+    overflow-x: auto;
+  }
+}
+
+/* Estilos para tabelas com células adaptáveis */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table th,
+table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+table th {
+  font-weight: 600;
+  background-color: rgba(58, 58, 58, 0.5);
+  color: #CCCCCC;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+table td {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Garantir que células com texto longo quebrem corretamente */
+table td.break-words {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 0;
+}
+
+/* Scrollbar personalizado para tabelas */
+.scrollbar-hide {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(58, 58, 58, 0.5) transparent;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-hide::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-hide::-webkit-scrollbar-thumb {
+  background-color: rgba(58, 58, 58, 0.5);
+  border-radius: 4px;
+}
+
+.scrollbar-hide::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(58, 58, 58, 0.7);
+}
+
+/* Grid responsivo do painel - colunas flexíveis por tamanho de tela */
+/* 1 col: default | 2 cols: md | 3 cols: lg+ */
+.painel-closers-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(0.5rem, 1.5vw, 1rem);
+  width: 100%;
+  min-width: 0;
+}
+.painel-closer-card {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (min-width: 768px) {
+  .painel-closer-card {
+    flex: 0 0 calc(50% - 0.5rem);
+  }
+}
+@media (min-width: 1024px) {
+  .painel-closer-card {
+    flex: 0 0 calc(33.333% - 0.667rem);
   }
 }
 
@@ -155,4 +244,12 @@
   50% {
     opacity: 0.7;
   }
+}
+
+/* Remover animação da logo na sidebar */
+aside img[alt="AdvHub Logo"],
+aside img[alt="AdvHub Logo"] * {
+  transition: none !important;
+  animation: none !important;
+  transform: none !important;
 }

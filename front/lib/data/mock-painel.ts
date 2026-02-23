@@ -184,7 +184,7 @@ export const mockForecasts: Forecast[] = [
   {
     id: 'forecast-1',
     vendedorId: VENDEDOR_IDS['Thalia Batista'],
-    vendedorNome: 'Thalia Batista',
+    closerNome: 'Thalia Batista',
     clienteNome: 'Gustavo',
     clienteNumero: '(11) 98765-4321',
     data: new Date().toISOString().split('T')[0],
@@ -199,7 +199,7 @@ export const mockForecasts: Forecast[] = [
   {
     id: 'forecast-2',
     vendedorId: VENDEDOR_IDS['Thalia Batista'],
-    vendedorNome: 'Thalia Batista',
+    closerNome: 'Thalia Batista',
     clienteNome: 'Eduardo',
     clienteNumero: '(11) 91234-5678',
     data: new Date().toISOString().split('T')[0],
@@ -214,7 +214,7 @@ export const mockForecasts: Forecast[] = [
   {
     id: 'forecast-3',
     vendedorId: VENDEDOR_IDS['João Vitor Martins Ribeiro'],
-    vendedorNome: 'João Vitor Martins Ribeiro',
+    closerNome: 'João Vitor Martins Ribeiro',
     clienteNome: 'Mega Empresa S.A.',
     clienteNumero: '(11) 99999-8888',
     data: new Date().toISOString().split('T')[0],

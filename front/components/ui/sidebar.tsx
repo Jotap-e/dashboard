@@ -68,12 +68,12 @@ export function Sidebar({ className }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-50 h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] transition-all flex flex-col',
+        'fixed left-0 top-0 z-50 h-screen bg-[#1A1A1A] border-r border-[#2A2A2A] flex flex-col',
         className
       )}
       style={{
         width: isCollapsed ? '70px' : '282px',
-        transitionDuration: '30ms'
+        transition: 'width 30ms ease-in-out'
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -85,7 +85,8 @@ export function Sidebar({ className }: SidebarProps) {
       )}
       style={{
         padding: 'clamp(1rem, 1.1vw, 1.1rem)',
-        height: '88px'
+        height: '88px',
+        transition: 'none'
       }}>
         <div 
           className={cn(
@@ -93,7 +94,7 @@ export function Sidebar({ className }: SidebarProps) {
             isCollapsed ? 'justify-center' : 'justify-start'
           )}
           onClick={handleLogoClick}
-          style={{ transition: 'none' }}
+          style={{ transition: 'none', transform: 'none' }}
         >
           <Image
             src={displayCollapsed ? "/advhub.svg" : "/logo_advhub.svg"}
@@ -101,7 +102,14 @@ export function Sidebar({ className }: SidebarProps) {
             width={displayCollapsed ? 53 : 132}
             height={displayCollapsed ? 53 : 132}
             className="flex-shrink-0"
-            style={{ transition: 'none' }}
+            style={{ 
+              transition: 'none !important',
+              transform: 'none !important',
+              animation: 'none !important',
+              width: displayCollapsed ? '53px' : '132px',
+              height: displayCollapsed ? '53px' : '132px'
+            }}
+            priority
           />
         </div>
         {!isCollapsed && (

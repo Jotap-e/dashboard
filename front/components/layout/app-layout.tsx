@@ -2,22 +2,27 @@
 
 import { Sidebar } from '@/components/ui/sidebar';
 import { SidebarProvider, useSidebar } from '@/components/layout/sidebar-context';
-import { usePathname } from 'next/navigation';
 
 function AppLayoutContent({ children }: { children: React.ReactNode }) {
   const { isCollapsed } = useSidebar();
+  const sidebarWidth = isCollapsed ? 70 : 282;
   
   return (
     <>
       <Sidebar />
       <main
-        className="transition-all"
+        className="transition-all min-w-0"
         style={{
-          marginLeft: isCollapsed ? '70px' : '282px',
-          transitionDuration: '30ms'
+          marginLeft: sidebarWidth,
+          width: `calc(100vw - ${sidebarWidth}px)`,
+          maxWidth: '100%',
+          transitionDuration: '30ms',
+          overflowX: 'auto',
         }}
       >
-        {children}
+        <div className="w-full min-w-0 max-w-full">
+          {children}
+        </div>
       </main>
     </>
   );

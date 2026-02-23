@@ -35,7 +35,7 @@ export default function ControleClosersPage() {
       <BackgroundLogo />
       
       <div className="relative z-10 min-h-screen flex items-center justify-center px-4 md:px-6 lg:px-8 py-6 md:py-8">
-        <div className="w-auto max-w-4xl mx-auto flex flex-col items-center">
+        <div className="w-auto max-w-5xl mx-auto flex flex-col items-center">
           {/* Header */}
           <div className="mb-6 md:mb-8 w-full text-center">
             <div className="flex items-center justify-center gap-3 md:gap-4 mb-2">
@@ -49,12 +49,12 @@ export default function ControleClosersPage() {
             </p>
           </div>
 
-          {/* Lista de Closers */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 w-full justify-items-center">
+          {/* Lista de Closers - flex com justify-center para centralizar linhas incompletas */}
+          <div className="flex flex-wrap justify-center gap-4 md:gap-6 w-full">
             {closers.map((vendedor) => (
               <Card
                 key={vendedor}
-                className="bg-[#2A2A2A]/50 border border-[#3A3A3A] hover:border-[#fed094]/50 transition-colors cursor-pointer w-full max-w-sm"
+                className="bg-[#2A2A2A]/50 border border-[#3A3A3A] hover:border-[#fed094]/50 transition-colors cursor-pointer w-full min-w-[200px] max-w-[280px] md:max-w-[300px]"
                 onClick={() => handleSelectVendedor(vendedor)}
               >
                 <CardHeader style={{ padding: 'clamp(1rem, 2vw, 1.5rem)' }}>

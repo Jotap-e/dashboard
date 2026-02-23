@@ -10,9 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MetaInput } from '@/components/controle/meta-input';
 import { ForecastForm } from '@/components/controle/forecast-form';
+import { ReuniaoForm } from '@/components/controle/reuniao-form';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Negociacao } from '@/lib/types/negociacoes';
 import { ForecastFormData, Forecast } from '@/lib/types/forecast';
-import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Phone, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw } from 'lucide-react';
+import { ReuniaoFormData } from '@/lib/types/reuniao';
+import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Phone, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw, PhoneCall } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getVendedorId, VENDEDOR_IDS, slugToVendedorName, getVendedorTipo } from '@/lib/utils/vendedores';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
@@ -144,6 +147,10 @@ export default function ControleClosersPage() {
   // Estado para controlar criação manual de forecast (sem negociação)
   const [criandoForecastManual, setCriandoForecastManual] = useState<boolean>(false);
   
+  // Estado para controlar criação manual de call (reunião)
+  const [criandoCallManual, setCriandoCallManual] = useState<boolean>(false);
+  const [savingReuniao, setSavingReuniao] = useState<boolean>(false);
+  
   // Estado para visualização (lista ou cards)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'cards'>('cards');
   
@@ -176,15 +183,50 @@ export default function ControleClosersPage() {
           console.log('📂 [CONTROLE] Nenhuma negociação encontrada no localStorage');
         }
         
-        // Carregar forecasts
-        const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
-        if (storedForecasts) {
-          const parsed = JSON.parse(storedForecasts);
-          console.log('📂 [CONTROLE] Forecasts carregados do localStorage:', parsed.length);
-          setForecastsDoVendedor(parsed);
-        } else {
-          console.log('📂 [CONTROLE] Nenhum forecast encontrado no localStorage');
-        }
+        // Carregar forecasts: buscar do banco (dia atual) e usar como base
+        const hoje = new Date().toISOString().split('T')[0];
+        fetch(`/api/forecasts?closerNome=${encodeURIComponent(vendedorAtual)}&dataCriacao=${hoje}`)
+          .then((res) => res.json())
+          .then((result) => {
+            if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+              const fromApi = result.data.map((f: Record<string, unknown>) => ({
+                id: f.id,
+                vendedorId: f.vendedorId,
+                closerNome: f.closerNome || f.vendedorNome || '',
+                clienteNome: f.clienteNome,
+                clienteNumero: f.clienteNumero,
+                data: f.data,
+                horario: f.horario,
+                valor: f.valor,
+                observacoes: f.observacoes || '',
+                primeiraCall: f.primeiraCall,
+                negociacaoId: f.negociacaoId,
+                createdAt: f.createdAt,
+                updatedAt: f.updatedAt,
+              }));
+              console.log('📂 [CONTROLE] Forecasts carregados do banco:', fromApi.length);
+              setForecastsDoVendedor(fromApi);
+              localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(fromApi));
+            } else {
+              const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
+              if (storedForecasts) {
+                const parsed = JSON.parse(storedForecasts);
+                console.log('📂 [CONTROLE] Forecasts carregados do localStorage:', parsed.length);
+                setForecastsDoVendedor(parsed);
+              } else {
+                setForecastsDoVendedor([]);
+              }
+            }
+          })
+          .catch(() => {
+            const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
+            if (storedForecasts) {
+              const parsed = JSON.parse(storedForecasts);
+              setForecastsDoVendedor(parsed);
+            } else {
+              setForecastsDoVendedor([]);
+            }
+          });
         
         // Carregar preferência de visualização
         const storedVisualizacao = localStorage.getItem(`controle_visualizacao_${vendedorAtual}`);
@@ -327,20 +369,19 @@ export default function ControleClosersPage() {
   }, [vendedorAtual]);
 
   // WebSocket para enviar atualizações
-  const { isConnected: wsConnected, sendDealUpdate, sendMetaUpdate, sendForecastUpdate } = useWebSocket({
+  const { isConnected: wsConnected, sendDealUpdate, sendMetaUpdate, sendForecastUpdate, sendForecastDelete } = useWebSocket({
     room: 'controle',
     onControleStateUpdated: handleControleStateUpdated, // Recebe estado de vendedores ao conectar
     onMetasUpdated: handleMetasUpdated, // Recebe estado de metas
     onForecastsUpdated: (state: Array<[string, any]>) => {
-      // Atualizar forecasts no controle quando receber do servidor
+      // Atualizar forecasts em tempo real quando receber do WebSocket (sincronizado com banco)
       const forecastsMap = new Map<string, any[]>();
       state.forEach(([vendedorId, forecasts]) => {
         forecastsMap.set(vendedorId, forecasts);
       });
-      // Salvar no localStorage e atualizar estado
+      const forecastsDoVendedor = forecastsMap.get(ownerId || '') || [];
+      setForecastsDoVendedor(forecastsDoVendedor);
       if (typeof window !== 'undefined') {
-        const forecastsDoVendedor = forecastsMap.get(ownerId || '') || [];
-        setForecastsDoVendedor(forecastsDoVendedor);
         localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(forecastsDoVendedor));
       }
     },
@@ -402,6 +443,24 @@ export default function ControleClosersPage() {
         sendForecastUpdate(forecastAtualizado);
       }
       
+      // Atualizar no banco via API PUT
+      fetch(`/api/forecasts/${encodeURIComponent(forecastSendoEditado.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(forecastAtualizado),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            console.log('✅ [CONTROLE] Forecast atualizado no banco:', forecastSendoEditado.id);
+          } else {
+            console.warn('⚠️ [CONTROLE] Erro ao atualizar forecast no banco:', data.message);
+          }
+        })
+        .catch((err) => {
+          console.error('❌ [CONTROLE] Erro ao chamar API de update forecast:', err);
+        });
+      
       // Atualizar no localStorage
       if (typeof window !== 'undefined') {
         try {
@@ -424,10 +483,14 @@ export default function ControleClosersPage() {
     }
     
     // Criar novo forecast (pode ser manual, sem negociação)
+    const now = new Date();
+    const dataCriacao = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const horaCriacao = now.toTimeString().slice(0, 8); // HH:mm:ss
+
     const forecast: Forecast = {
       id: `forecast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       vendedorId: currentOwnerId,
-      vendedorNome: vendedorAtual,
+      closerNome: vendedorAtual,
       clienteNome: forecastData.clienteNome,
       clienteNumero: forecastData.clienteNumero,
       data: forecastData.data,
@@ -436,17 +499,42 @@ export default function ControleClosersPage() {
       observacoes: forecastData.observacoes,
       primeiraCall: forecastData.primeiraCall,
       negociacaoId: negociacaoSelecionadaParaForecast?.id, // Opcional - pode ser undefined para forecast manual
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
     };
-    
+
+    const payloadParaBanco = {
+      ...forecast,
+      dataCriacao,
+      horaCriacao,
+      closerNome: vendedorAtual, // já incluído no forecast
+    };
+
     console.log('💾 [CONTROLE] Criando novo forecast:', forecast);
-    
+
     // Enviar via WebSocket
     if (sendForecastUpdate) {
       sendForecastUpdate(forecast);
     }
-    
+
+    // Salvar no banco via API POST
+    fetch('/api/forecasts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadParaBanco),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          console.log('✅ [CONTROLE] Forecast salvo no banco:', data.data);
+        } else {
+          console.warn('⚠️ [CONTROLE] Erro ao salvar forecast no banco:', data.message);
+        }
+      })
+      .catch((err) => {
+        console.error('❌ [CONTROLE] Erro ao chamar API de forecasts:', err);
+      });
+
     // Salvar localmente no localStorage também
     if (typeof window !== 'undefined') {
       try {
@@ -468,9 +556,9 @@ export default function ControleClosersPage() {
   // Handler para selecionar negociação para forecast (com scroll para o topo)
   const handleSelecionarForecast = useCallback((negociacao: Negociacao) => {
     setNegociacaoSelecionadaParaForecast(negociacao);
-    setCriandoForecastManual(false); // Limpar estado de criação manual
-    setForecastSendoEditado(null); // Limpar estado de edição
-    // Fazer scroll suave para o topo da página
+    setCriandoForecastManual(false);
+    setCriandoCallManual(false);
+    setForecastSendoEditado(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
@@ -486,8 +574,59 @@ export default function ControleClosersPage() {
     setCriandoForecastManual(true);
     setNegociacaoSelecionadaParaForecast(null);
     setForecastSendoEditado(null);
+    setCriandoCallManual(false);
     // Fazer scroll suave para o topo da página
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // Handler para iniciar criação manual de call
+  const handleCriarCallManual = useCallback(() => {
+    setCriandoCallManual(true);
+    setCriandoForecastManual(false);
+    setNegociacaoSelecionadaParaForecast(null);
+    setForecastSendoEditado(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // Handler para salvar call (reunião) manual
+  const handleSaveReuniao = useCallback(async (data: ReuniaoFormData) => {
+    if (!vendedorAtual || !ownerId) return;
+
+    setSavingReuniao(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/reunioes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendedorId: ownerId,
+          vendedorNome: vendedorAtual,
+          data: data.data,
+          clienteNome: data.clienteNome.trim(),
+          clienteNumero: data.clienteNumero?.trim() || undefined,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        console.log('✅ [CONTROLE] Call registrada com sucesso:', result.data);
+        setCriandoCallManual(false);
+      } else {
+        setError(result.message || 'Erro ao registrar call');
+      }
+    } catch (err) {
+      console.error('❌ [CONTROLE] Erro ao registrar call:', err);
+      setError('Erro ao conectar com o servidor. Tente novamente.');
+    } finally {
+      setSavingReuniao(false);
+    }
+  }, [vendedorAtual, ownerId]);
+
+  // Handler para cancelar criação de call
+  const handleCancelReuniao = useCallback(() => {
+    setCriandoCallManual(false);
   }, []);
   
   // Handler para editar forecast (com scroll para o topo)
@@ -499,13 +638,15 @@ export default function ControleClosersPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
   
-  // Handler para deletar forecast
-  const handleDeleteForecast = useCallback((forecastId: string) => {
-    if (!confirm('Tem certeza que deseja remover este forecast?')) {
-      return;
-    }
-    
-    // Remover do localStorage
+  // Estado para diálogo de confirmação de delete forecast
+  const [deleteForecastId, setDeleteForecastId] = useState<string | null>(null);
+  // Estado para diálogo de confirmação de reverter venda
+  const [showReverterConfirm, setShowReverterConfirm] = useState(false);
+
+  // Executar delete de forecast (chamado após confirmação)
+  const executeDeleteForecast = useCallback((forecastId: string) => {
+    const currentOwnerId = ownerId || getVendedorId(vendedorAtual) || '';
+
     if (typeof window !== 'undefined') {
       try {
         const stored = localStorage.getItem(STORAGE_KEY_FORECASTS);
@@ -513,22 +654,26 @@ export default function ControleClosersPage() {
         const filtered = forecasts.filter(f => f.id !== forecastId);
         localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(filtered));
         setForecastsDoVendedor(filtered);
-        
-        // Criar um forecast com flag de deletado para enviar via WebSocket
-        const forecastDeletado = forecasts.find(f => f.id === forecastId);
-        if (forecastDeletado) {
-          // Enviar forecast com id negativo ou flag especial para indicar deleção
-          // Por enquanto, vamos apenas atualizar o estado local
-          // O backend precisará implementar a lógica de deleção
-          console.log('🗑️ [CONTROLE] Forecast removido localmente:', forecastId);
-          // sendForecastUpdate já verifica internamente se o socket está conectado
-          // sendForecastUpdate(forecastDeletado);
-        }
       } catch (error) {
-        console.error('❌ [CONTROLE] Erro ao deletar forecast:', error);
+        console.error('❌ [CONTROLE] Erro ao remover forecast do localStorage:', error);
       }
     }
-  }, [STORAGE_KEY_FORECASTS, sendForecastUpdate]);
+
+    fetch(`/api/forecasts/${encodeURIComponent(forecastId)}`, { method: 'DELETE' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) console.log('✅ [CONTROLE] Forecast removido do banco:', forecastId);
+        else console.warn('⚠️ [CONTROLE] Erro ao remover forecast do banco:', data.message);
+      })
+      .catch((err) => console.error('❌ [CONTROLE] Erro ao chamar API de delete forecast:', err));
+
+    if (sendForecastDelete && currentOwnerId) sendForecastDelete(forecastId, currentOwnerId);
+  }, [STORAGE_KEY_FORECASTS, ownerId, vendedorAtual, sendForecastDelete]);
+
+  // Handler para abrir confirmação e executar delete de forecast
+  const handleDeleteForecast = useCallback((forecastId: string) => {
+    setDeleteForecastId(forecastId);
+  }, []);
 
   // Estado para valor acumulado (agora será atualizado manualmente via botão "Vendido")
   const [valorAcumulado, setValorAcumulado] = useState<number>(0);
@@ -681,9 +826,33 @@ export default function ControleClosersPage() {
       });
       console.log('💾 [CONTROLE] Valor acumulado enviado via WebSocket:', novoValorAcumulado);
     }
+    
+    // Salvar venda no banco via API POST (apenas dados do closer; valor do time = somatório após GET)
+    fetch('/api/vendas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vendedorId: ownerId,
+        vendedorNome: vendedorAtual,
+        negociacaoId: negociacaoNowId,
+        valorNegociacao: negociacaoAtual.valor,
+        clienteNumero: negociacaoAtual.numero, // Telefone do cliente associado à deal
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          console.log('✅ [CONTROLE] Venda salva no banco:', data.data);
+        } else {
+          console.warn('⚠️ [CONTROLE] Erro ao salvar venda no banco:', data.message);
+        }
+      })
+      .catch((err) => {
+        console.error('❌ [CONTROLE] Erro ao chamar API de vendas:', err);
+      });
   }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, sendMetaUpdate, negociacaoVendida]);
 
-  // Handler para reverter venda
+  // Handler para reverter venda (chamado após confirmação no diálogo)
   const handleReverterVenda = useCallback(() => {
     if (!negociacaoNowId || !metaVendedor || !ownerId || !negociacaoVendida || !negociacaoNowCompleta) {
       console.error('❌ [CONTROLE] Não é possível reverter venda: dados incompletos ou não vendida');
@@ -698,6 +867,26 @@ export default function ControleClosersPage() {
     
     // Reverter valor acumulado
     const novoValorAcumulado = Math.max(0, valorAcumulado - negociacaoAtual.valor);
+    
+    // Remover venda do banco via API DELETE
+    const params = new URLSearchParams({
+      negociacaoId: negociacaoNowId,
+      vendedorId: ownerId,
+    });
+    fetch(`/api/vendas?${params.toString()}`, {
+      method: 'DELETE',
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          console.log('✅ [CONTROLE] Venda revertida no banco:', negociacaoNowId);
+        } else {
+          console.warn('⚠️ [CONTROLE] Erro ao reverter venda no banco:', data.message);
+        }
+      })
+      .catch((err) => {
+        console.error('❌ [CONTROLE] Erro ao chamar API de delete venda:', err);
+      });
     
     // Atualizar estado local
     setValorAcumulado(novoValorAcumulado);
@@ -721,7 +910,7 @@ export default function ControleClosersPage() {
       });
       console.log('🔄 [CONTROLE] Valor acumulado revertido enviado via WebSocket:', novoValorAcumulado);
     }
-  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, negociacaoVendida]);
+  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, negociacaoVendida, sendMetaUpdate]);
 
   // Mapear status do RD Station para status interno
   const mapRdStatusToInternal = (rdStatus: string): Negociacao['status'] => {
@@ -1242,16 +1431,19 @@ export default function ControleClosersPage() {
 
       // Enviar atualização via WebSocket para a página de painel (após confirmação da rota)
       if (wsConnected && apiCallSuccess) {
-        // Buscar nome do cliente da negociação
+        // Buscar nome e número do cliente da negociação
         const negociacao = negociacoesDoVendedor.find(n => n.id === negociacaoId);
         const clienteNome = negociacao?.cliente || 'Cliente';
+        const clienteNumero = negociacao?.numero;
         
         const updateData = {
           deal_id: negociacaoId,
           is_now: true,
           updated_at: new Date().toISOString(),
           owner_id: ownerId,
-          cliente_nome: clienteNome, // Nome do cliente para salvar reunião
+          vendedor_nome: vendedorAtual,
+          cliente_nome: clienteNome,
+          cliente_numero: clienteNumero,
         };
         console.log('📤 [FRONT] Enviando atualização via WebSocket:', updateData);
         sendDealUpdate(updateData);
@@ -1291,7 +1483,7 @@ export default function ControleClosersPage() {
   return (
     <>
       <BackgroundLogo />
-      <div className="relative z-10 min-h-screen flex flex-col w-full max-w-[100vw] overflow-x-hidden" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)' }}>
+      <div className="relative z-10 min-h-screen flex flex-col w-full min-w-0 max-w-full" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)' }}>
         {/* Header */}
         <header className="flex-shrink-0 flex items-center justify-end mb-3 md:mb-4" style={{ paddingBottom: 'clamp(0.25rem, 0.5vw, 0.5rem)' }}>
           {/* Dropdown do vendedor */}
@@ -1357,22 +1549,45 @@ export default function ControleClosersPage() {
             </div>
           )}
 
-          {/* Botão para criar forecast manual */}
-          {!negociacaoSelecionadaParaForecast && !forecastSendoEditado && !criandoForecastManual && vendedorAtual && vendedores.includes(vendedorAtual) && (
+          {/* Botões para criar forecast manual e call manual */}
+          {!negociacaoSelecionadaParaForecast && !forecastSendoEditado && !criandoForecastManual && !criandoCallManual && vendedorAtual && vendedores.includes(vendedorAtual) && (
             <div className="mb-3 md:mb-4">
               <div className="mb-2 p-3 bg-[#2A2A2A]/50 border border-[#3A3A3A] rounded-lg">
                 <p className="text-[#CCCCCC] text-center" style={{ fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)' }}>
-                  💡 <strong>Dica:</strong> Use o Forecast Manual quando o cliente ainda não possui dados cadastrados no CRM (RD Station)
+                  💡 <strong>Dica:</strong> Use o Forecast Manual quando o cliente ainda não possui dados cadastrados no CRM (RD Station). Use o Call Manual para registrar reuniões sem negociação no CRM.
                 </p>
               </div>
-              <Button
-                onClick={handleCriarForecastManual}
-                className="w-full bg-[#fed094] hover:bg-[#fed094]/80 text-black"
-                style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', padding: 'clamp(0.625rem, 1vw, 0.75rem)' }}
-              >
-                <Calendar className="mr-2 flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
-                Criar Forecast Manual
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  onClick={handleCriarForecastManual}
+                  className="flex-1 bg-[#fed094] hover:bg-[#fed094]/80 text-black"
+                  style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', padding: 'clamp(0.625rem, 1vw, 0.75rem)' }}
+                >
+                  <Calendar className="mr-2 flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                  Criar Forecast Manual
+                </Button>
+                <Button
+                  onClick={handleCriarCallManual}
+                  className="flex-1 bg-[#3b82f6] hover:bg-[#3b82f6]/80 text-white"
+                  style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', padding: 'clamp(0.625rem, 1vw, 0.75rem)' }}
+                >
+                  <PhoneCall className="mr-2 flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                  Criar Call Manual
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Formulário de Call Manual */}
+          {criandoCallManual && vendedorAtual && vendedores.includes(vendedorAtual) && (
+            <div className="mb-3 md:mb-4">
+              <ReuniaoForm
+                closerNome={vendedorAtual}
+                vendedorId={ownerId || ''}
+                onSave={handleSaveReuniao}
+                onCancel={handleCancelReuniao}
+                isLoading={savingReuniao}
+              />
             </div>
           )}
 
@@ -1383,7 +1598,7 @@ export default function ControleClosersPage() {
               <ForecastForm
                 negociacao={negociacaoSelecionadaParaForecast}
                 forecast={forecastSendoEditado}
-                vendedorNome={vendedorAtual}
+                closerNome={vendedorAtual}
                 vendedorId={ownerId || ''}
                 onSave={handleSaveForecast}
                 onCancel={handleCancelForecast}
@@ -1415,8 +1630,8 @@ export default function ControleClosersPage() {
                           key={forecast.id}
                           className="bg-[#1A1A1A] border border-[#3A3A3A] rounded-lg p-3 md:p-4 hover:border-[#fed094]/50 transition-colors"
                         >
-                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
-                            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4 min-w-0">
+                            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 min-w-0">
                               <div>
                                 <p className="text-[#CCCCCC] text-xs mb-1">Cliente</p>
                                 <p className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
@@ -1442,7 +1657,7 @@ export default function ControleClosersPage() {
                                 </p>
                               </div>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2 flex-shrink-0">
                               <Button
                                 onClick={() => handleEditForecast(forecast)}
                                 className="bg-blue-600 text-white hover:bg-blue-700"
@@ -1549,7 +1764,7 @@ export default function ControleClosersPage() {
                           <>
                             {/* Botão Reverter */}
                             <Button
-                              onClick={handleReverterVenda}
+                              onClick={() => setShowReverterConfirm(true)}
                               className="bg-[#2A2A2A] text-white hover:bg-[#3A3A3A] border border-[#3A3A3A] flex items-center gap-2"
                               style={{ 
                                 fontSize: 'clamp(0.875rem, 1.5vw, 1rem)', 
@@ -1598,8 +1813,8 @@ export default function ControleClosersPage() {
           })()}
 
           {/* Toggle de visualização - Após Forecasts Cadastrados */}
-          <div className="mb-3 md:mb-4 flex justify-end">
-            <div className="flex items-center gap-2 bg-[#2A2A2A] border border-[#3A3A3A] rounded-lg p-1">
+          <div className="mb-3 md:mb-4 flex flex-wrap justify-end">
+            <div className="flex items-center gap-2 bg-[#2A2A2A] border border-[#3A3A3A] rounded-lg p-1 flex-shrink-0">
               <Button
                 onClick={() => {
                   setVisualizacao('lista');
@@ -1674,8 +1889,8 @@ export default function ControleClosersPage() {
             </div>
           ) : visualizacao === 'lista' ? (
             // Visualização em Lista (Tabela)
-            <div className="w-full overflow-x-auto">
-              <table className="w-full border-collapse">
+            <div className="w-full overflow-x-auto scrollbar-hide -mx-1">
+              <table className="w-full border-collapse min-w-[520px]">
                 <thead>
                   <tr className="border-b border-[#3A3A3A]">
                     <th className="text-left text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
@@ -1752,7 +1967,7 @@ export default function ControleClosersPage() {
                           </div>
                         </td>
                         <td className="py-3 px-3 md:px-4">
-                          <div className="flex justify-center gap-2">
+                          <div className="flex flex-wrap justify-center gap-2">
                             <Button
                               onClick={() => handleSetNow(negociacao.id)}
                               className={cn(
@@ -1806,9 +2021,9 @@ export default function ControleClosersPage() {
           ) : (
             // Visualização em Cards
             <div 
-              className="grid gap-2 md:gap-3 lg:gap-4 w-full" 
+              className="grid gap-2 md:gap-3 lg:gap-4 w-full"
               style={{ 
-                gridTemplateColumns: 'repeat(auto-fill, minmax(clamp(240px, 30vw, 360px), 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
                 maxWidth: '100%',
               }}
             >
@@ -1962,6 +2177,32 @@ export default function ControleClosersPage() {
           )}
         </div>
       </div>
+
+      {/* Diálogo de confirmação - Remover forecast */}
+      <ConfirmDialog
+        open={deleteForecastId !== null}
+        onOpenChange={(open) => !open && setDeleteForecastId(null)}
+        title="Remover forecast"
+        description="Tem certeza que deseja remover este forecast? Esta ação não pode ser desfeita."
+        confirmLabel="Remover"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        icon="trash"
+        onConfirm={() => deleteForecastId && executeDeleteForecast(deleteForecastId)}
+      />
+
+      {/* Diálogo de confirmação - Reverter venda */}
+      <ConfirmDialog
+        open={showReverterConfirm}
+        onOpenChange={setShowReverterConfirm}
+        title="Reverter venda"
+        description="Tem certeza que deseja reverter esta venda? O valor será removido do acumulado do dia."
+        confirmLabel="Reverter"
+        cancelLabel="Cancelar"
+        variant="default"
+        icon="revert"
+        onConfirm={handleReverterVenda}
+      />
     </>
   );
 }

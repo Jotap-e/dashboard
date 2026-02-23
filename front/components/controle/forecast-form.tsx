@@ -10,7 +10,7 @@ import { Negociacao } from '@/lib/types/negociacoes';
 interface ForecastFormProps {
   negociacao?: Negociacao | null;
   forecast?: Forecast | null; // Forecast existente para edição
-  vendedorNome: string;
+  closerNome: string;
   vendedorId: string;
   onSave: (forecast: ForecastFormData) => void;
   onCancel: () => void;
@@ -40,7 +40,7 @@ function formatPhoneNumber(value: string): string {
 export function ForecastForm({ 
   negociacao, 
   forecast,
-  vendedorNome, 
+  closerNome, 
   vendedorId, 
   onSave, 
   onCancel,
