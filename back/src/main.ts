@@ -11,9 +11,48 @@ async function bootstrap() {
   
   // Habilitar CORS para comunicação com o frontend
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  
+  // Configurar CORS para aceitar múltiplas origens
+  const allowedOrigins = [
+    frontendUrl,
+    'http://localhost:3000',
+    'http://localhost:3001',
+  ];
+  
+  // Adicionar domínios Vercel se FRONTEND_URL estiver definido
+  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('vercel.app')) {
+    // Permitir todos os subdomínios do Vercel (preview deployments)
+    allowedOrigins.push(/\.vercel\.app$/);
+  }
+  
   app.enableCors({
-    origin: frontendUrl,
+    origin: (origin, callback) => {
+      // Permitir requisições sem origin (como Postman, curl, etc.)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      
+      // Verificar se a origin está na lista de permitidas
+      const isAllowed = allowedOrigins.some(allowed => {
+        if (typeof allowed === 'string') {
+          return origin === allowed;
+        }
+        // Se for regex, testar
+        return allowed.test(origin);
+      });
+      
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.warn(`⚠️ CORS bloqueado para origem: ${origin}`);
+        console.warn(`⚠️ Origens permitidas:`, allowedOrigins);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Registrar filtro global de exceções para garantir respostas JSON
@@ -28,6 +67,6 @@ async function bootstrap() {
   console.log(`🚀 Backend rodando na porta ${port}`);
   console.log(`📡 API disponível em http://localhost:${port}/api`);
   console.log(`🔌 WebSocket disponível em ws://localhost:${port}/deals`);
-  console.log(`🌐 CORS configurado para: ${frontendUrl}`);
+  console.log(`🌐 CORS configurado para:`, allowedOrigins);
 }
 bootstrap();

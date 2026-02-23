@@ -38,6 +38,8 @@ Configure as seguintes variáveis de ambiente no Railway (Settings → Variables
 
 ### Frontend URL (obrigatório em produção)
 - `FRONTEND_URL` - URL do frontend para CORS (ex: `https://seu-frontend.vercel.app`)
+  - Se usar Vercel, o backend automaticamente permitirá todos os preview deployments (*.vercel.app)
+  - Configure com a URL de produção do seu frontend
 
 ### Porta (automático)
 - `PORT` - Railway define automaticamente, não precisa configurar manualmente
