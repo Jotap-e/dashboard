@@ -51,8 +51,11 @@ Configure as seguintes variáveis de ambiente no Railway:
 3. Selecione "Deploy from GitHub repo" (recomendado) ou "Empty Project"
 4. Se usar GitHub:
    - Conecte seu repositório
-   - Selecione o diretório `back/` como root directory
-   - Railway detectará automaticamente que é um projeto Node.js
+   - **IMPORTANTE:** Configure o **Root Directory** como `back/` nas configurações do serviço
+   - Railway detectará automaticamente que é um projeto Node.js/NestJS
+   - O Railway instalará dependências com `pnpm install` (ou `npm install`)
+   - O Railway executará `pnpm run build` automaticamente
+   - O Railway iniciará com `pnpm run start:prod`
 5. Configure as variáveis de ambiente no dashboard do Railway
 6. O deploy será iniciado automaticamente
 
@@ -60,16 +63,19 @@ Configure as seguintes variáveis de ambiente no Railway:
 
 1. Instale a CLI: `npm i -g @railway/cli`
 2. Faça login: `railway login`
-3. No diretório `back/`, execute: `railway init`
-4. Configure as variáveis de ambiente: `railway variables set NOME_VARIAVEL=valor`
-5. Faça o deploy: `railway up`
+3. **Navegue para o diretório `back/`**: `cd back`
+4. Execute: `railway init`
+5. Configure as variáveis de ambiente: `railway variables set NOME_VARIAVEL=valor`
+6. Faça o deploy: `railway up`
 
 ## Build e Start
 
-O Railway executará automaticamente:
+O Railway executará automaticamente (quando configurado com `back/` como root directory):
 - `pnpm install` (ou `npm install`) para instalar dependências
-- `pnpm run build` para compilar o TypeScript
-- `pnpm run start:prod` para iniciar a aplicação
+- `pnpm run build` para compilar o TypeScript (executa `nest build`)
+- `pnpm run start:prod` para iniciar a aplicação (executa `node dist/main`)
+
+**Nota:** Se você estiver fazendo deploy a partir da raiz do repositório, certifique-se de configurar o **Root Directory** como `back/` nas configurações do serviço no Railway.
 
 ## Verificando o Deploy
 
