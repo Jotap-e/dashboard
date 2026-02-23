@@ -55,8 +55,8 @@ Configure as seguintes variáveis de ambiente no Render (Settings → Environmen
    - **Branch:** `main` (ou sua branch principal)
    - **Root Directory:** `back` ⚠️ **IMPORTANTE:** Configure como `back` para fazer deploy apenas do backend
    - **Runtime:** `Node`
-   - **Build Command:** `pnpm install --prod=false && pnpm run build`
-   - **Start Command:** `pnpm run start:prod`
+   - **Build Command:** `npm install && npm run build`
+   - **Start Command:** `npm run start:prod`
    - **Plan:** Escolha o plano (Starter, Standard, etc.)
 5. Configure as variáveis de ambiente em **"Environment"**
 6. Clique em **"Create Web Service"**
@@ -80,11 +80,11 @@ Configure as seguintes variáveis de ambiente no Render (Settings → Environmen
 ## Build e Start
 
 O Render executará automaticamente:
-- `pnpm install --prod=false` para instalar todas as dependências (incluindo devDependencies necessárias para o build)
-- `pnpm run build` para compilar o TypeScript (executa `nest build`)
-- `pnpm run start:prod` para iniciar a aplicação (executa `node dist/main`)
+- `npm install` para instalar todas as dependências (incluindo devDependencies necessárias para o build)
+- `npm run build` para compilar o TypeScript (executa `nest build`)
+- `npm run start:prod` para iniciar a aplicação (executa `node dist/main`)
 
-**Nota:** O flag `--prod=false` garante que as devDependencies (como `@nestjs/cli` e `typescript`) sejam instaladas, pois são necessárias para compilar o projeto.
+**Nota:** O `npm install` sem flags instala automaticamente todas as dependências, incluindo devDependencies (como `@nestjs/cli` e `typescript`) que são necessárias para compilar o projeto.
 
 ## Verificando o Deploy
 

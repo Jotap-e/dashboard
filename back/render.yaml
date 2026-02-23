@@ -1,12 +1,9 @@
 services:
   - type: web
     name: advhub-dashboard-backend
-    env: node
+    runtime: node
     region: oregon
     plan: starter
-    buildCommand: pnpm install --prod=false && pnpm run build
-    startCommand: pnpm run start:prod
-    envVars:
-      - key: NODE_ENV
-        value: production
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
     healthCheckPath: /api
