@@ -9,8 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MetaInput } from '@/components/controle/meta-input';
+import { ForecastForm } from '@/components/controle/forecast-form';
 import { Negociacao } from '@/lib/types/negociacoes';
-import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ForecastFormData, Forecast } from '@/lib/types/forecast';
+import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Phone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getVendedorId, VENDEDOR_IDS, slugToVendedorName } from '@/lib/utils/vendedores';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
@@ -30,6 +32,7 @@ interface MetaDiaria {
   vendedor_nome: string;
   meta: number;
   valor_acumulado: number;
+  qtd_reunioes: number;
   updated_at: string;
 }
 
@@ -119,6 +122,15 @@ export default function ControlePage() {
   // Estado para armazenar meta do vendedor
   const [metaVendedor, setMetaVendedor] = useState<MetaDiaria | null>(null);
   
+  // Estado para forecast selecionado (negociação que será usada para criar forecast)
+  const [negociacaoSelecionadaParaForecast, setNegociacaoSelecionadaParaForecast] = useState<Negociacao | null>(null);
+  
+  // Estado para armazenar forecasts do vendedor
+  const [forecastsDoVendedor, setForecastsDoVendedor] = useState<Forecast[]>([]);
+  
+  // Chave para localStorage dos forecasts do vendedor
+  const STORAGE_KEY_FORECASTS = `controle_forecasts_${vendedorAtual}`;
+  
   // Sempre mostrar loading inicial para evitar erro de hidratação
   const [loading, setLoading] = useState<boolean>(true);
   
@@ -145,11 +157,21 @@ export default function ControlePage() {
         } else {
           console.log('📂 [CONTROLE] Nenhuma negociação encontrada no localStorage');
         }
+        
+        // Carregar forecasts
+        const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
+        if (storedForecasts) {
+          const parsedForecasts = JSON.parse(storedForecasts);
+          console.log('📂 [CONTROLE] Forecasts carregados do localStorage:', parsedForecasts.length);
+          setForecastsDoVendedor(parsedForecasts);
+        } else {
+          console.log('📂 [CONTROLE] Nenhum forecast encontrado no localStorage');
+        }
       } catch (error) {
         console.error('❌ [CONTROLE] Erro ao carregar do localStorage:', error);
       }
     }
-  }, [STORAGE_KEY_NOW_ID, STORAGE_KEY_DEALS]); // Executa quando as chaves mudarem (mudança de vendedor)
+  }, [STORAGE_KEY_NOW_ID, STORAGE_KEY_DEALS, STORAGE_KEY_FORECASTS]); // Executa quando as chaves mudarem (mudança de vendedor)
   
   // Salvar negociações no localStorage sempre que mudarem (apenas no cliente)
   // Salvar mesmo quando vazio para limpar dados antigos se necessário
@@ -254,28 +276,42 @@ export default function ControlePage() {
     }
   }, [vendedorAtual, updateStateForCurrentVendedor]);
 
-  // Obter ownerId do vendedor atual
-  const ownerId = useMemo(() => getVendedorId(vendedorSlug) || '', [vendedorSlug]);
+  // Obter ownerId do vendedor atual (usar vendedorAtual que é o nome completo, não o slug)
+  const ownerId = useMemo(() => getVendedorId(vendedorAtual) || '', [vendedorAtual]);
 
   // Handler para receber estado de metas do servidor
   const handleMetasUpdated = useCallback((state: Array<[string, MetaDiaria]>) => {
     console.log('📡 [CONTROLE] Estado de metas recebido do servidor:', state.length, 'metas');
     
-    // Encontrar meta do vendedor atual
-    const currentOwnerId = getVendedorId(vendedorSlug) || '';
+    // Encontrar meta do vendedor atual (usar vendedorAtual que é o nome completo)
+    const currentOwnerId = getVendedorId(vendedorAtual) || '';
     const meta = state.find(([vendedorId]) => vendedorId === currentOwnerId);
     if (meta) {
       setMetaVendedor(meta[1]);
     } else {
       setMetaVendedor(null);
     }
-  }, [vendedorSlug]);
+  }, [vendedorAtual]);
 
   // WebSocket para enviar atualizações
-  const { isConnected: wsConnected, sendDealUpdate, sendMetaUpdate } = useWebSocket({
+  const { isConnected: wsConnected, sendDealUpdate, sendMetaUpdate, sendForecastUpdate } = useWebSocket({
     room: 'controle',
     onControleStateUpdated: handleControleStateUpdated, // Recebe estado de vendedores ao conectar
     onMetasUpdated: handleMetasUpdated, // Recebe estado de metas
+    onForecastsUpdated: (state: Array<[string, any]>) => {
+      // Atualizar forecasts no controle quando receber do servidor
+      const forecastsMap = new Map<string, any[]>();
+      state.forEach(([vendedorId, forecasts]) => {
+        forecastsMap.set(vendedorId, forecasts);
+      });
+      // Salvar no localStorage e atualizar estado para persistência
+      if (typeof window !== 'undefined') {
+        const forecastsKey = `controle_forecasts_${vendedorAtual}`;
+        const forecastsDoVendedorAtualizados = forecastsMap.get(ownerId || '') || [];
+        localStorage.setItem(forecastsKey, JSON.stringify(forecastsDoVendedorAtualizados));
+        setForecastsDoVendedor(forecastsDoVendedorAtualizados);
+      }
+    },
     onConnected: () => {
       console.log('✅ [CONTROLE] WebSocket conectado');
     },
@@ -290,6 +326,64 @@ export default function ControlePage() {
       sendMetaUpdate({ vendedor_id: vendedorId, vendedor_nome: vendedorNome, meta });
     }
   }, [sendMetaUpdate]);
+
+  // Handler para salvar forecast
+  const handleSaveForecast = useCallback((forecastData: ForecastFormData) => {
+    if (!negociacaoSelecionadaParaForecast || !vendedorAtual) return;
+    
+    // Garantir que temos o ownerId (tentar obter novamente se não estiver disponível)
+    const currentOwnerId = ownerId || getVendedorId(vendedorAtual) || '';
+    if (!currentOwnerId) {
+      console.error('❌ [CONTROLE] Não foi possível obter ownerId para salvar forecast');
+      return;
+    }
+    
+    // Criar objeto Forecast completo
+    const forecast: Forecast = {
+      id: `forecast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      vendedorId: currentOwnerId,
+      vendedorNome: vendedorAtual,
+      clienteNome: forecastData.clienteNome,
+      clienteNumero: forecastData.clienteNumero,
+      data: forecastData.data,
+      horario: forecastData.horario,
+      valor: forecastData.valor,
+      observacoes: forecastData.observacoes,
+      primeiraCall: forecastData.primeiraCall,
+      negociacaoId: negociacaoSelecionadaParaForecast.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    console.log('💾 [CONTROLE] Salvando forecast:', forecast);
+    
+    // Enviar via WebSocket
+    if (sendForecastUpdate) {
+      sendForecastUpdate(forecast);
+    }
+    
+    // Salvar localmente no localStorage também
+    if (typeof window !== 'undefined') {
+      const forecastsKey = `controle_forecasts_${vendedorAtual}`;
+      try {
+        const stored = localStorage.getItem(forecastsKey);
+        const forecasts: Forecast[] = stored ? JSON.parse(stored) : [];
+        forecasts.push(forecast);
+        localStorage.setItem(forecastsKey, JSON.stringify(forecasts));
+        setForecastsDoVendedor(forecasts);
+      } catch (error) {
+        console.error('❌ [CONTROLE] Erro ao salvar forecast no localStorage:', error);
+      }
+    }
+    
+    // Fechar o formulário
+    setNegociacaoSelecionadaParaForecast(null);
+  }, [negociacaoSelecionadaParaForecast, ownerId, vendedorAtual, sendForecastUpdate]);
+
+  // Handler para cancelar forecast
+  const handleCancelForecast = useCallback(() => {
+    setNegociacaoSelecionadaParaForecast(null);
+  }, []);
 
   // Calcular valor acumulado baseado na negociação atual marcada como "now"
   const valorAcumulado = useMemo(() => {
@@ -439,16 +533,37 @@ export default function ControlePage() {
           // Isso garante que mesmo após paginação, o estado "now" seja mantido
           const currentNowId = negociacaoNowId;
           
-          const negociacoesMapeadas = data.data.map((deal: any) => ({
-            id: deal.id,
-            cliente: deal.name,
-            status: mapRdStatusToInternal(deal.status),
-            // Priorizar o estado do WebSocket sobre o campo da API
-            // Quando há paginação, o estado do WebSocket sempre prevalece
-            isNow: currentNowId === deal.id,
-            tarefa: deal.custom_fields?.tarefa || '',
-            valor: deal.total_price || 0,
-          }));
+          const negociacoesMapeadas = data.data.map((deal: any) => {
+            // Tentar múltiplos campos possíveis para o número de telefone
+            const numero = 
+              deal.custom_fields?.numero || 
+              deal.custom_fields?.telefone || 
+              deal.custom_fields?.phone ||
+              deal.custom_fields?.celular ||
+              deal.custom_fields?.mobile ||
+              deal.custom_fields?.whatsapp ||
+              deal.contacts?.[0]?.phones?.[0]?.phone ||
+              deal.contact?.phones?.[0]?.phone ||
+              '';
+            
+            // Log para debug - remover depois se necessário
+            if (deal.custom_fields && Object.keys(deal.custom_fields).length > 0) {
+              console.log(`📞 [CONTROLE] Deal ${deal.id} - Custom fields:`, deal.custom_fields);
+              console.log(`📞 [CONTROLE] Número encontrado:`, numero || 'Nenhum número encontrado');
+            }
+            
+            return {
+              id: deal.id,
+              cliente: deal.name,
+              numero: numero,
+              status: mapRdStatusToInternal(deal.status),
+              // Priorizar o estado do WebSocket sobre o campo da API
+              // Quando há paginação, o estado do WebSocket sempre prevalece
+              isNow: currentNowId === deal.id,
+              tarefa: deal.custom_fields?.tarefa || '',
+              valor: deal.total_price || 0,
+            };
+          });
           
           setNegociacoesDoVendedor(negociacoesMapeadas);
           
@@ -766,14 +881,30 @@ export default function ControlePage() {
           </div>
 
           {/* Input de Meta Diária - Fixado entre busca e cards */}
-          {ownerId && ownerId !== '' && (
+          {/* Exibir para todos os vendedores que estão na lista de vendedores válidos */}
+          {vendedorAtual && vendedores.includes(vendedorAtual) && (
             <div className="mb-3 md:mb-4">
               <MetaInput
                 vendedorNome={vendedorAtual}
-                vendedorId={ownerId}
+                vendedorId={ownerId || ''}
                 metaAtual={metaVendedor?.meta}
                 valorAcumulado={valorAcumulado}
                 onSave={handleSaveMeta}
+                isLoading={!wsConnected}
+              />
+            </div>
+          )}
+
+          {/* Formulário de Forecast */}
+          {/* Exibir para todos os vendedores que estão na lista de vendedores válidos */}
+          {negociacaoSelecionadaParaForecast && vendedorAtual && vendedores.includes(vendedorAtual) && (
+            <div className="mb-3 md:mb-4">
+              <ForecastForm
+                negociacao={negociacaoSelecionadaParaForecast}
+                vendedorNome={vendedorAtual}
+                vendedorId={ownerId || ''}
+                onSave={handleSaveForecast}
+                onCancel={handleCancelForecast}
                 isLoading={!wsConnected}
               />
             </div>
@@ -818,6 +949,8 @@ export default function ControlePage() {
               {negociacoesFiltradas.map((negociacao) => {
               const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
               const isNow = negociacaoNowId === negociacao.id;
+              // Verificar se esta negociação já tem um forecast cadastrado
+              const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
 
               return (
                 <Card
@@ -852,6 +985,14 @@ export default function ControlePage() {
                   </CardHeader>
                   <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 1rem)', paddingTop: 0 }}>
                     <div className="space-y-2 md:space-y-3">
+                      {/* Número do Cliente - Sempre exibir, mesmo que vazio */}
+                      <div className="flex items-center gap-1.5 md:gap-2">
+                        <Phone className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 1rem)', height: 'clamp(0.75rem, 1.5vw, 1rem)' }} />
+                        <p className="text-[#CCCCCC] break-words" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 1rem)' }}>
+                          {negociacao.numero || 'Número não informado'}
+                        </p>
+                      </div>
+
                       {/* Valor */}
                       <div className="flex items-center gap-1.5 md:gap-2">
                         <DollarSign className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 1rem)', height: 'clamp(0.75rem, 1.5vw, 1rem)' }} />
@@ -863,28 +1004,52 @@ export default function ControlePage() {
                         </p>
                       </div>
 
-                      {/* Botão para definir como "now" */}
-                      <Button
-                        onClick={() => handleSetNow(negociacao.id)}
-                        className={cn(
-                          "w-full",
-                          isNow ? "bg-[#fed094] text-[#1A1A1A] hover:bg-[#fed094]/90" : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
-                        )}
-                        style={{ 
-                          fontSize: 'clamp(0.6875rem, 1.5vw, 0.875rem)', 
-                          padding: 'clamp(0.5rem, 1vw, 0.625rem)',
-                          minHeight: 'clamp(2rem, 3vw, 2.5rem)',
-                        }}
-                      >
-                        {isNow ? (
-                          <>
-                            <Check className="mr-1.5 md:mr-2 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />
-                            Agora
-                          </>
-                        ) : (
-                          'Definir como Agora'
-                        )}
-                      </Button>
+                      {/* Botões de ação */}
+                      <div className="flex flex-col gap-2">
+                        {/* Botão para definir como "now" */}
+                        <Button
+                          onClick={() => handleSetNow(negociacao.id)}
+                          className={cn(
+                            "w-full",
+                            isNow ? "bg-[#fed094]/20 text-[#fed094] hover:bg-[#fed094]/30 border border-[#fed094]" : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
+                          )}
+                          style={{ 
+                            fontSize: 'clamp(0.6875rem, 1.5vw, 0.875rem)', 
+                            padding: 'clamp(0.5rem, 1vw, 0.625rem)',
+                            minHeight: 'clamp(2rem, 3vw, 2.5rem)',
+                          }}
+                        >
+                          {isNow ? (
+                            <>
+                              <Check className="mr-1.5 md:mr-2 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />
+                              Agora
+                            </>
+                          ) : (
+                            'Definir como Agora'
+                          )}
+                        </Button>
+
+                        {/* Botão para adicionar Forecast */}
+                        <Button
+                          onClick={() => setNegociacaoSelecionadaParaForecast(negociacao)}
+                          className={cn(
+                            "w-full",
+                            negociacaoSelecionadaParaForecast?.id === negociacao.id 
+                              ? "bg-blue-600 text-white hover:bg-blue-700" 
+                              : temForecast
+                                ? "bg-blue-600/80 text-white hover:bg-blue-700 border-2 border-blue-400"
+                                : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
+                          )}
+                          style={{ 
+                            fontSize: 'clamp(0.6875rem, 1.5vw, 0.875rem)', 
+                            padding: 'clamp(0.5rem, 1vw, 0.625rem)',
+                            minHeight: 'clamp(2rem, 3vw, 2.5rem)',
+                          }}
+                        >
+                          <Calendar className="mr-1.5 md:mr-2 flex-shrink-0 text-white" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />
+                          {negociacaoSelecionadaParaForecast?.id === negociacao.id ? 'Editando Forecast' : temForecast ? 'Forecast ✓' : 'Adicionar Forecast'}
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

@@ -6,6 +6,7 @@ export type TipoBloco = 'forecast' | 'closer' | 'sdr';
 export interface Negociacao {
   id: string;
   cliente: string;
+  numero?: string; // Número de telefone do cliente
   status: StatusNegociacao;
   tarefa: string;
   vendedor: string;

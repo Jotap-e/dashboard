@@ -1,0 +1,29 @@
+/**
+ * Tipos para Forecast de Closers
+ */
+
+export interface Forecast {
+  id: string;
+  vendedorId: string;
+  vendedorNome: string;
+  clienteNome: string;
+  clienteNumero: string;
+  data: string; // Data no formato YYYY-MM-DD
+  horario: string; // Horário no formato HH:mm
+  valor: number;
+  observacoes: string;
+  primeiraCall: string; // Data da primeira call no formato YYYY-MM-DD
+  negociacaoId?: string; // ID da negociação relacionada (opcional)
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ForecastFormData {
+  clienteNome: string;
+  clienteNumero: string;
+  data: string;
+  horario: string;
+  valor: number;
+  observacoes: string;
+  primeiraCall: string; // Data da primeira call no formato YYYY-MM-DD
+}

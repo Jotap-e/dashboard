@@ -10,10 +10,11 @@ export class DealsController {
     @Query('page') page?: string,
     @Query('size') size?: string,
     @Query('owner_id') ownerId?: string,
+    @Query('pipeline_id') pipelineId?: string,
   ): Promise<DealResponse> {
     try {
       // Log dos parâmetros recebidos
-      console.log('📥 Parâmetros recebidos:', { page, size, ownerId });
+      console.log('📥 Parâmetros recebidos:', { page, size, ownerId, pipelineId });
       
       // Validar e converter parâmetros de paginação
       let pageNumber = 1;
@@ -48,7 +49,16 @@ export class DealsController {
         }
       }
       
-      console.log('✅ Parâmetros processados:', { pageNumber, pageSize, ownerId: ownerId || 'todos' });
+      // Validar pipeline_id se fornecido
+      let cleanPipelineId: string | undefined = undefined;
+      if (pipelineId) {
+        cleanPipelineId = pipelineId.trim();
+        if (cleanPipelineId === '') {
+          cleanPipelineId = undefined;
+        }
+      }
+      
+      console.log('✅ Parâmetros processados:', { pageNumber, pageSize, ownerId: ownerId || 'todos', pipelineId: cleanPipelineId || 'nenhum' });
       
       // Se owner_id for fornecido, buscar deals do vendedor específico
       // Caso contrário, buscar todos os deals
@@ -58,8 +68,8 @@ export class DealsController {
         console.log('✅ Deals retornados:', { total: deals.data?.length || 0 });
         return deals;
       } else {
-        console.log(`👤 Buscando deals do owner_id: ${ownerId}`);
-        const deals = await this.dealsService.getDealsByOwner(ownerId, pageNumber, pageSize);
+        console.log(`👤 Buscando deals do owner_id: ${ownerId}${cleanPipelineId ? ` (pipeline: ${cleanPipelineId})` : ''}`);
+        const deals = await this.dealsService.getDealsByOwner(ownerId, pageNumber, pageSize, cleanPipelineId);
         console.log('✅ Deals retornados:', { total: deals.data?.length || 0 });
         return deals;
       }
@@ -270,6 +280,45 @@ export class DealsController {
           errors: [
             {
               detail: error?.message || 'Erro interno ao buscar deal',
+            },
+          ],
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Busca agendamentos de SDRs do dia atual
+   * Retorna contagem de reuniões por SDR (Rafael Ratão e Gabriel)
+   */
+  @Get('sdr/agendamentos')
+  async getSdrAgendamentos(): Promise<{ rafaelRatao: number; gabriel: number }> {
+    try {
+      console.log('📅 Buscando agendamentos de SDRs para hoje');
+      const agendamentos = await this.dealsService.getSdrAgendamentosHoje();
+      console.log(`✅ Agendamentos contabilizados - Rafael Ratão: ${agendamentos.rafaelRatao}, Gabriel: ${agendamentos.gabriel}`);
+      return agendamentos;
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar agendamentos de SDRs:', {
+        message: error?.message,
+        statusCode: error?.statusCode,
+        stack: error?.stack,
+        error,
+      });
+      
+      if (error?.statusCode) {
+        throw new HttpException(
+          { errors: error.errors || [{ detail: error.message }] },
+          error.statusCode,
+        );
+      }
+      
+      throw new HttpException(
+        {
+          errors: [
+            {
+              detail: error?.message || 'Erro interno ao buscar agendamentos de SDRs',
             },
           ],
         },

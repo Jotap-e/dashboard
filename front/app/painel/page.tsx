@@ -5,12 +5,15 @@ import { StackedCards } from '@/components/painel/stacked-cards';
 import { BlocoLabel } from '@/components/painel/bloco-label';
 import { VendedorMetaCard } from '@/components/painel/vendedor-meta-card';
 import { TeamOverview } from '@/components/painel/team-overview';
-import { NegociacaoCard } from '@/components/painel/negociacao-card';
+import { ForecastTable } from '@/components/painel/forecast-table';
+import { Forecast } from '@/lib/types/forecast';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
-import { User, Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { User, Loader2, Phone, DollarSign, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { StatusNegociacao, TipoBloco, Negociacao } from '@/lib/types/negociacoes';
-import { VENDEDOR_IDS } from '@/lib/utils/vendedores';
+import { VENDEDOR_IDS, getVendedorTipo } from '@/lib/utils/vendedores';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 
 // Mapeamento de owner_id para nome do vendedor
@@ -36,6 +39,26 @@ const mapRdStatusToInternal = (rdStatus: string): StatusNegociacao => {
 
 // Por enquanto, todos os cards são forecast
 const tipoBloco: TipoBloco = 'forecast';
+
+// Configuração de status para badges
+const statusConfig: Record<StatusNegociacao, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'; color: string }> = {
+  indicacao: { label: 'Indicação', variant: 'default', color: '#3b82f6' },
+  conectado: { label: 'Conectado', variant: 'outline', color: '#f59e0b' },
+  agendado: { label: 'Agendado', variant: 'warning', color: '#f59e0b' },
+  agendado_sdr: { label: 'Agendado SDR', variant: 'warning', color: '#f59e0b' },
+  reuniao: { label: 'Reunião', variant: 'default', color: '#3b82f6' },
+  negociacao: { label: 'Negociação', variant: 'default', color: '#3b82f6' },
+  ganho: { label: 'Ganho', variant: 'success', color: '#22c55e' },
+};
+
+// Função para formatar moeda
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+  }).format(value);
+};
 
 interface NegociacoesPorVendedor {
   vendedor: string;
@@ -98,6 +121,7 @@ interface MetaDiaria {
   vendedor_nome: string;
   meta: number;
   valor_acumulado: number;
+  qtd_reunioes: number;
   updated_at: string;
 }
 
@@ -109,82 +133,161 @@ export default function PainelPage() {
   // Map para rastrear metas diárias (vendedor_id -> MetaDiaria)
   const [metasMap, setMetasMap] = useState<Map<string, MetaDiaria>>(new Map());
   
+  // Map para rastrear forecasts por vendedor (vendedor_id -> Forecast[])
+  const [forecastsMap, setForecastsMap] = useState<Map<string, Forecast[]>>(new Map());
+  
   // Converter Map para formato de renderização
   const negociacoesPorVendedor = useMemo(() => {
     return mapToNegociacoesPorVendedor(dealsNowMap);
   }, [dealsNowMap]);
 
-  // Calcular valores acumulados por vendedor baseado nos deals "now"
-  const valoresAcumuladosPorVendedor = useMemo(() => {
-    const valores = new Map<string, number>();
+  // Valores acumulados vêm das metas (atualizados quando o closer marca como vendido)
+  // Não calcular mais baseado nos deals "now", usar o valor_acumulado das metas
+
+  // Calcular reuniões por vendedor (cada "now" = 1 reunião)
+  const reunioesPorVendedor = useMemo(() => {
+    const reunioes = new Map<string, number>();
     
     negociacoesPorVendedor.forEach(({ vendedor, negociacoes }) => {
-      const total = negociacoes.reduce((sum, neg) => sum + (neg.valor || 0), 0);
-      // Obter owner_id do vendedor
       const ownerId = VENDEDOR_IDS[vendedor];
       if (ownerId) {
-        valores.set(ownerId, total);
+        // Cada negociação "now" conta como uma reunião
+        reunioes.set(ownerId, negociacoes.length);
       }
     });
     
-    return valores;
+    return reunioes;
   }, [negociacoesPorVendedor]);
 
-  // Lista plana de todas as negociações para exibir em coluna única
-  const todasNegociacoes = useMemo(() => {
-    const lista: Array<{ negociacao: Negociacao; vendedor: string; meta: MetaDiaria | null; valorAcumulado: number }> = [];
+  // Agrupar negociações por vendedor (apenas Closers)
+  // Também incluir closers que têm forecasts mesmo sem negociações "now"
+  const vendedoresClosers = useMemo(() => {
+    // Agrupar por vendedor
+    const closersMap = new Map<string, Array<{ negociacao: Negociacao; vendedor: string; meta: MetaDiaria | null; valorAcumulado: number; reunioes: number }>>();
     
     negociacoesPorVendedor.forEach(({ vendedor, negociacoes }) => {
       const ownerId = VENDEDOR_IDS[vendedor];
       const meta = ownerId ? (metasMap.get(ownerId) || null) : null;
-      const valorAcumulado = ownerId ? (valoresAcumuladosPorVendedor.get(ownerId) || 0) : 0;
+      // Usar valor_acumulado das metas (atualizado quando o closer marca como vendido)
+      const valorAcumulado = meta?.valor_acumulado || 0;
+      const reunioes = ownerId ? (reunioesPorVendedor.get(ownerId) || 0) : 0;
+      const tipo = getVendedorTipo(vendedor);
       
-      negociacoes.forEach((negociacao) => {
-        lista.push({
-          negociacao,
-          vendedor,
-          meta,
-          valorAcumulado,
+      // Apenas processar closers
+      if (tipo === 'closer') {
+        negociacoes.forEach((negociacao) => {
+          const item = {
+            negociacao,
+            vendedor,
+            meta,
+            valorAcumulado,
+            reunioes,
+          };
+          
+          if (!closersMap.has(vendedor)) {
+            closersMap.set(vendedor, []);
+          }
+          closersMap.get(vendedor)!.push(item);
         });
-      });
+      }
     });
     
-    return lista;
-  }, [negociacoesPorVendedor, metasMap, valoresAcumuladosPorVendedor]);
-
-  // Atualizar valores acumulados nas metas quando os deals mudarem
-  useEffect(() => {
-    setMetasMap((prevMetas) => {
-      const newMetas = new Map(prevMetas);
-      valoresAcumuladosPorVendedor.forEach((valor, ownerId) => {
-        const meta = newMetas.get(ownerId);
-        if (meta) {
-          newMetas.set(ownerId, {
-            ...meta,
-            valor_acumulado: valor,
-          });
+    // Adicionar closers que têm forecasts para hoje, mesmo sem negociações "now"
+    const hoje = new Date().toISOString().split('T')[0];
+    forecastsMap.forEach((forecasts, ownerId) => {
+      const forecastsHoje = forecasts.filter(f => f.data === hoje);
+      if (forecastsHoje.length > 0) {
+        // Encontrar o nome do vendedor pelo ownerId
+        const vendedorNome = getVendedorNameById(ownerId);
+        if (vendedorNome && getVendedorTipo(vendedorNome) === 'closer') {
+          // Se o closer não está no map ainda, adicionar com array vazio de items
+          if (!closersMap.has(vendedorNome)) {
+            closersMap.set(vendedorNome, []);
+          }
         }
-      });
-      return newMetas;
+      }
     });
-  }, [valoresAcumuladosPorVendedor]);
+    
+    // Adicionar closers que têm meta diária definida, mesmo sem negociações "now" ou forecasts
+    metasMap.forEach((meta, ownerId) => {
+      // Encontrar o nome do vendedor pelo ownerId
+      const vendedorNome = getVendedorNameById(ownerId);
+      if (vendedorNome && getVendedorTipo(vendedorNome) === 'closer') {
+        // Se o closer não está no map ainda e tem meta definida, adicionar com array vazio de items
+        if (!closersMap.has(vendedorNome) && meta.meta > 0) {
+          closersMap.set(vendedorNome, []);
+        }
+      }
+    });
+    
+    // Converter Map para array de vendedores
+    const closers: Array<{ vendedor: string; items: Array<{ negociacao: Negociacao; vendedor: string; meta: MetaDiaria | null; valorAcumulado: number; reunioes: number }> }> = [];
+    
+    closersMap.forEach((items, vendedor) => {
+      // Se items está vazio mas o vendedor tem meta ou forecasts, ainda incluir
+      const ownerId = VENDEDOR_IDS[vendedor];
+      const meta = ownerId ? (metasMap.get(ownerId) || null) : null;
+      const forecasts = ownerId ? (forecastsMap.get(ownerId) || []) : [];
+      const forecastsHoje = forecasts.filter(f => f.data === hoje);
+      
+      if (items.length > 0 || meta || forecastsHoje.length > 0) {
+        closers.push({ vendedor, items });
+      }
+    });
+    
+    return closers;
+  }, [negociacoesPorVendedor, metasMap, reunioesPorVendedor, forecastsMap]);
+
+  // Distribuir vendedores em duas colunas (esquerda e direita)
+  const distribuirEmColunas = <T,>(items: T[]): [T[], T[]] => {
+    const colunaEsquerda: T[] = [];
+    const colunaDireita: T[] = [];
+    
+    items.forEach((item, index) => {
+      if (index % 2 === 0) {
+        colunaEsquerda.push(item);
+      } else {
+        colunaDireita.push(item);
+      }
+    });
+    
+    return [colunaEsquerda, colunaDireita];
+  };
+
+  const [closersColunaEsquerda, closersColunaDireita] = useMemo(() => {
+    return distribuirEmColunas(vendedoresClosers);
+  }, [vendedoresClosers]);
   
-  // Calcular meta total e valor acumulado total do time
+  // Lista plana de todas as negociações (apenas closers)
+  const todasNegociacoes = useMemo(() => {
+    return vendedoresClosers.flatMap(v => v.items);
+  }, [vendedoresClosers]);
+
+  // Valores acumulados agora vêm diretamente das metas via WebSocket
+  // Não precisamos mais atualizar baseado nos deals
+
+  // Calcular meta total, valor acumulado total e total de reuniões do time
   const teamStats = useMemo(() => {
     let metaTotal = 0;
     let valorAcumuladoTotal = 0;
+    let totalReunioes = 0;
     
     metasMap.forEach((meta) => {
       metaTotal += meta.meta;
       valorAcumuladoTotal += meta.valor_acumulado;
     });
     
+    reunioesPorVendedor.forEach((count) => {
+      totalReunioes += count;
+    });
+    
     return {
       metaTotal,
       valorAcumuladoTotal,
       vendedoresCount: metasMap.size,
+      totalReunioes,
     };
-  }, [metasMap]);
+  }, [metasMap, reunioesPorVendedor]);
   
   // Sempre mostrar loading inicial para evitar erro de hidratação
   const [loading, setLoading] = useState<boolean>(true);
@@ -193,25 +296,54 @@ export default function PainelPage() {
   // Ref para rastrear atualizações processadas e evitar loops
   const processedUpdatesRef = useRef<Set<string>>(new Set());
   const dealsNowMapRef = useRef<Map<string, Negociacao>>(new Map());
-  
   // Atualizar ref quando o Map mudar
   useEffect(() => {
     dealsNowMapRef.current = dealsNowMap;
   }, [dealsNowMap]);
   
+  // Handler para receber estado de metas do servidor
+  const handleMetasUpdated = useCallback((state: Array<[string, MetaDiaria]>) => {
+    console.log('📡 [PAINEL] Estado de metas recebido do servidor:', state.length, 'metas');
+    const newMetasMap = new Map<string, MetaDiaria>();
+    state.forEach(([vendedorId, meta]) => {
+      newMetasMap.set(vendedorId, meta);
+    });
+    setMetasMap(newMetasMap);
+  }, []);
+
+  // Handler para receber estado de forecasts do servidor
+  const handleForecastsUpdated = useCallback((state: Array<[string, Forecast[]]>) => {
+    console.log('📡 [PAINEL] Estado de forecasts recebido do servidor:', state.length, 'vendedores');
+    const newForecastsMap = new Map<string, Forecast[]>();
+    state.forEach(([vendedorId, forecasts]) => {
+      newForecastsMap.set(vendedorId, forecasts);
+    });
+    setForecastsMap(newForecastsMap);
+  }, []);
+
   // Carregar do localStorage apenas no cliente (após hidratação)
+  // NOTA: Não carregar deals do localStorage aqui - aguardar dados do WebSocket
+  // O localStorage será atualizado apenas quando recebermos dados válidos do servidor
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const loadedMap = loadDealsMapFromLocalStorage();
-      if (loadedMap.size > 0) {
-        console.log('📂 [PAINEL] Carregando dados do localStorage após hidratação:', loadedMap.size, 'deals');
-        setDealsNowMap(loadedMap);
-        setLoading(false);
-      } else {
-        console.log('📂 [PAINEL] Nenhum dado encontrado no localStorage');
+      // Carregar forecasts do localStorage
+      const forecastsKey = 'painel_forecasts_map';
+      try {
+        const storedForecasts = localStorage.getItem(forecastsKey);
+        if (storedForecasts) {
+          const forecastsArray = JSON.parse(storedForecasts) as Array<[string, Forecast[]]>;
+          const forecastsMap = new Map<string, Forecast[]>(forecastsArray);
+          setForecastsMap(forecastsMap);
+          console.log('📂 [PAINEL] Forecasts carregados do localStorage:', forecastsMap.size, 'vendedores');
+        }
+      } catch (error) {
+        console.error('❌ [PAINEL] Erro ao carregar forecasts do localStorage:', error);
       }
+      
+      setLoading(false);
     }
   }, []); // Executa apenas uma vez após mount
+
 
   // Salvar no localStorage sempre que o Map mudar (apenas no cliente)
   // Salvar mesmo quando vazio para limpar dados antigos se necessário
@@ -220,6 +352,19 @@ export default function PainelPage() {
       saveDealsMapToLocalStorage(dealsNowMap);
     }
   }, [dealsNowMap]);
+
+  // Salvar forecasts no localStorage sempre que mudarem
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const forecastsKey = 'painel_forecasts_map';
+      try {
+        const forecastsArray = Array.from(forecastsMap.entries());
+        localStorage.setItem(forecastsKey, JSON.stringify(forecastsArray));
+      } catch (error) {
+        console.error('❌ [PAINEL] Erro ao salvar forecasts no localStorage:', error);
+      }
+    }
+  }, [forecastsMap]);
 
   // Função para buscar uma deal específica e adicionar ao Map
   // Remove automaticamente outras deals do mesmo vendedor (só pode haver uma "now" por vendedor)
@@ -249,16 +394,29 @@ export default function PainelPage() {
       }
 
       // Mapear deal para o formato interno
-      const negociacaoMapeada: Negociacao = {
-        id: deal.id,
-        cliente: deal.name,
-        status: mapRdStatusToInternal(deal.status),
-        isNow: true,
-        tarefa: deal.custom_fields?.tarefa || '',
-        valor: deal.total_price || 0,
-        tipo: tipoBloco,
-        vendedor: ownerId ? getVendedorNameById(ownerId) || 'Desconhecido' : 'Desconhecido',
-      };
+        // Tentar múltiplos campos possíveis para o número de telefone
+        const numero = 
+          deal.custom_fields?.numero || 
+          deal.custom_fields?.telefone || 
+          deal.custom_fields?.phone ||
+          deal.custom_fields?.celular ||
+          deal.custom_fields?.mobile ||
+          deal.custom_fields?.whatsapp ||
+          deal.contacts?.[0]?.phones?.[0]?.phone ||
+          deal.contact?.phones?.[0]?.phone ||
+          '';
+        
+        const negociacaoMapeada: Negociacao = {
+          id: deal.id,
+          cliente: deal.name,
+          numero: numero,
+          status: mapRdStatusToInternal(deal.status),
+          isNow: true,
+          tarefa: deal.custom_fields?.tarefa || '',
+          valor: deal.total_price || 0,
+          tipo: tipoBloco,
+          vendedor: ownerId ? getVendedorNameById(ownerId) || 'Desconhecido' : 'Desconhecido',
+        };
 
       console.log('✅ [PAINEL] Deal mapeada:', negociacaoMapeada);
 
@@ -293,8 +451,18 @@ export default function PainelPage() {
     console.log('📡 [PAINEL] Estado completo recebido do servidor:', state.length, 'deals');
     
     if (state.length === 0) {
-      console.log('ℹ️ [PAINEL] Nenhum deal "now" no estado do servidor');
+      console.log('ℹ️ [PAINEL] Nenhum deal "now" no estado do servidor - limpando dados');
+      // Limpar dados quando o servidor não enviar nenhum deal "now"
       setDealsNowMap(new Map());
+      // Limpar também do localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+          console.log('🧹 [PAINEL] Dados antigos removidos do localStorage');
+        } catch (error) {
+          console.error('❌ [PAINEL] Erro ao limpar localStorage:', error);
+        }
+      }
       setLoading(false);
       return;
     }
@@ -325,9 +493,22 @@ export default function PainelPage() {
           return null;
         }
 
+        // Tentar múltiplos campos possíveis para o número de telefone
+        const numero = 
+          deal.custom_fields?.numero || 
+          deal.custom_fields?.telefone || 
+          deal.custom_fields?.phone ||
+          deal.custom_fields?.celular ||
+          deal.custom_fields?.mobile ||
+          deal.custom_fields?.whatsapp ||
+          deal.contacts?.[0]?.phones?.[0]?.phone ||
+          deal.contact?.phones?.[0]?.phone ||
+          '';
+        
         const negociacao: Negociacao = {
           id: deal.id,
           cliente: deal.name,
+          numero: numero,
           status: mapRdStatusToInternal(deal.status),
           isNow: true,
           tarefa: deal.custom_fields?.tarefa || '',
@@ -354,7 +535,14 @@ export default function PainelPage() {
     });
 
     console.log(`✅ [PAINEL] ${validDeals.length} deals carregados do estado do servidor`);
-    setDealsNowMap(newDealsMap);
+    // Se recebemos dados reais do servidor, atualizar o estado
+    if (validDeals.length > 0) {
+      setDealsNowMap(newDealsMap);
+    } else {
+      // Se não conseguimos carregar nenhum deal, manter os dados existentes
+      console.log('ℹ️ [PAINEL] Nenhum deal válido carregado, mantendo dados existentes');
+      setDealsNowMap((prevMap) => prevMap);
+    }
     setLoading(false);
   }, []);
 
@@ -396,6 +584,8 @@ export default function PainelPage() {
     room: 'painel',
     onDealUpdate: handleDealUpdate,
     onDashboardUpdated: handleDashboardUpdated,
+    onMetasUpdated: handleMetasUpdated,
+    onForecastsUpdated: handleForecastsUpdated,
     onConnected: () => {
       console.log('✅ [PAINEL] WebSocket conectado');
     },
@@ -403,6 +593,7 @@ export default function PainelPage() {
       console.error('❌ [PAINEL] Erro WebSocket:', err);
     },
   });
+
 
   // Removido: loadDataFromNowFlag - não é necessário pois o WebSocket já envia o estado inicial
   // quando o cliente se conecta e emite 'join-painel', o servidor responde com 'dashboardUpdated'
@@ -419,6 +610,16 @@ export default function PainelPage() {
             Negociações em andamento
           </p>
         </div>
+
+        {/* Acompanhamento do Time - Sempre exibido */}
+        {!loading && !error && (
+          <TeamOverview
+            metaTotal={teamStats.metaTotal || 0}
+            valorAcumuladoTotal={teamStats.valorAcumuladoTotal || 0}
+            vendedoresCount={teamStats.vendedoresCount || 0}
+            totalReunioes={teamStats.totalReunioes || 0}
+          />
+        )}
 
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
@@ -445,58 +646,257 @@ export default function PainelPage() {
           </div>
         ) : (
           <>
-            {/* Acompanhamento do Time */}
-            {teamStats.vendedoresCount > 0 && (
-              <TeamOverview
-                metaTotal={teamStats.metaTotal}
-                valorAcumuladoTotal={teamStats.valorAcumuladoTotal}
-                vendedoresCount={teamStats.vendedoresCount}
-              />
-            )}
+            {/* Bloco Closers - Em cima */}
+            <div className="flex-1 flex flex-col gap-4 w-full mb-6">
+              <div className="mb-2">
+                <h2 className="text-white font-semibold" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.5rem)' }}>
+                  Closers
+                </h2>
+              </div>
+              
+              {vendedoresClosers.length === 0 ? (
+                <p className="text-[#CCCCCC] text-center py-8" style={{ fontSize: 'clamp(0.875rem, 1.5vw, 1rem)' }}>
+                  Nenhuma negociação de Closer no momento.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                  {/* Coluna Esquerda */}
+                  <div className="flex flex-col gap-1">
+                    {closersColunaEsquerda.map(({ vendedor, items }) => {
+                      const primeiroItem = items[0];
+                      // Buscar meta, valorAcumulado e reunioes mesmo quando não há items
+                      const ownerId = VENDEDOR_IDS[vendedor];
+                      const meta = ownerId ? (metasMap.get(ownerId) || null) : null;
+                      const valorAcumulado = meta?.valor_acumulado || 0;
+                      const reunioes = ownerId ? (reunioesPorVendedor.get(ownerId) || 0) : 0;
+                      
+                      return (
+                        <div key={`closer-left-${vendedor}`} className="flex flex-col mb-4">
+                          {/* Header do vendedor */}
+                          <Card className="mb-0.5 flex-shrink-0 bg-transparent border-none">
+                            <CardHeader style={{ padding: 'clamp(0.5rem, 1vw, 0.75rem)' }}>
+                              <div className="flex items-center gap-1.5 md:gap-2">
+                                <User className="text-[#fed094] flex-shrink-0" style={{ width: 'clamp(1rem, 2.5vw, 1.5rem)', height: 'clamp(1rem, 2.5vw, 1.5rem)' }} />
+                                <CardTitle className="text-white truncate" style={{ fontSize: 'clamp(0.875rem, 2.5vw, 1.25rem)' }}>
+                                  {vendedor}
+                                </CardTitle>
+                              </div>
+                            </CardHeader>
+                          </Card>
 
-            {/* Coluna única de cards */}
-            <div className="flex-1 flex flex-col gap-1 w-full" style={{ maxWidth: 'clamp(280px, 60vw, 420px)' }}>
-              {todasNegociacoes.map((item, index) => {
-                const { negociacao, vendedor, meta, valorAcumulado } = item;
-                const isFirstOfVendedor = index === 0 || todasNegociacoes[index - 1].vendedor !== vendedor;
-                
-                return (
-                  <div key={`${vendedor}-${negociacao.id}`} className="flex flex-col">
-                    {/* Header do vendedor (apenas na primeira negociação do vendedor) */}
-                    {isFirstOfVendedor && (
-                      <>
-                        <Card className="mb-0.5 flex-shrink-0 bg-transparent border-none">
-                          <CardHeader style={{ padding: 'clamp(0.5rem, 1vw, 0.75rem)' }}>
-                            <div className="flex items-center gap-1.5 md:gap-2">
-                              <User className="text-[#fed094] flex-shrink-0" style={{ width: 'clamp(1rem, 2.5vw, 1.5rem)', height: 'clamp(1rem, 2.5vw, 1.5rem)' }} />
-                              <CardTitle className="text-white truncate" style={{ fontSize: 'clamp(0.875rem, 2.5vw, 1.25rem)' }}>
-                                {vendedor}
-                              </CardTitle>
+                          {/* Card de Meta */}
+                          {meta && (
+                            <div className="mb-0.5">
+                              <VendedorMetaCard
+                                vendedorNome={vendedor}
+                                meta={meta.meta}
+                                valorAcumulado={valorAcumulado}
+                                reunioes={reunioes}
+                              />
                             </div>
-                          </CardHeader>
-                        </Card>
+                          )}
 
-                        {/* Card de Meta (apenas na primeira negociação do vendedor) */}
-                        {meta && (
-                          <div className="mb-0.5">
-                            <VendedorMetaCard
-                              vendedorNome={vendedor}
-                              meta={meta.meta}
-                              valorAcumulado={valorAcumulado}
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
+                          {/* Tabela de Forecast */}
+                          {(() => {
+                            const ownerId = VENDEDOR_IDS[vendedor];
+                            const forecasts = ownerId ? (forecastsMap.get(ownerId) || []) : [];
+                            const hoje = new Date().toISOString().split('T')[0];
+                            const forecastsHoje = forecasts.filter(f => f.data === hoje);
+                            return forecastsHoje.length > 0 ? (
+                              <div className="mb-0.5">
+                                <ForecastTable forecasts={forecastsHoje} vendedorNome={vendedor} />
+                              </div>
+                            ) : null;
+                          })()}
 
-                    {/* Card da Negociação */}
-                    <div className="w-full" style={{ minHeight: 'clamp(200px, 35vh, 320px)' }}>
-                      <NegociacaoCard negociacao={negociacao} />
-                    </div>
+                          {/* Negociações "Now" */}
+                          {items.map(({ negociacao }) => (
+                            <div 
+                              key={`closer-${vendedor}-${negociacao.id}`}
+                              className={cn(
+                                "w-full rounded-lg border-2 border-[#fed094] bg-[#1A1A1A]/80 shadow-lg shadow-[#fed094]/20",
+                                "flex items-center gap-3 px-4 py-3 transition-all hover:bg-[#1A1A1A] mb-0.5"
+                              )}
+                              style={{ 
+                                minHeight: 'clamp(60px, 8vh, 80px)',
+                                borderWidth: '2px',
+                              }}
+                            >
+                              <div 
+                                className="flex-shrink-0 flex items-center justify-center bg-[#fed094] text-[#1A1A1A] rounded-md px-2 py-1"
+                                style={{ animation: 'gentle-pulse 2s ease-in-out infinite' }}
+                              >
+                                <Check className="mr-1" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                <span className="font-bold" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>
+                                  In call
+                                </span>
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                <h3 className="text-white font-semibold truncate" style={{ fontSize: 'clamp(0.875rem, 2vw, 1.125rem)' }}>
+                                  {negociacao.cliente}
+                                </h3>
+                              </div>
+                              
+                              <div className="flex-shrink-0">
+                                {(() => {
+                                  const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
+                                  return (
+                                    <Badge 
+                                      variant={statusInfo.variant} 
+                                      className="flex-shrink-0" 
+                                      style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)', padding: 'clamp(0.25rem, 0.5vw, 0.375rem) clamp(0.5rem, 0.8vw, 0.625rem)' }}
+                                    >
+                                      {statusInfo.label}
+                                    </Badge>
+                                  );
+                                })()}
+                              </div>
+                              
+                              {negociacao.numero && (
+                                <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
+                                  <Phone className="text-[#CCCCCC]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                  <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)' }}>
+                                    {negociacao.numero}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <DollarSign className="text-[#fed094]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                <span className="text-white font-bold" style={{ fontSize: 'clamp(0.875rem, 1.8vw, 1.125rem)' }}>
+                                  {negociacao.valor && negociacao.valor > 0 
+                                    ? formatCurrency(negociacao.valor)
+                                    : 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+
+                  {/* Coluna Direita */}
+                  <div className="flex flex-col gap-1">
+                    {closersColunaDireita.map(({ vendedor, items }) => {
+                      const primeiroItem = items[0];
+                      // Buscar meta, valorAcumulado e reunioes mesmo quando não há items
+                      const ownerId = VENDEDOR_IDS[vendedor];
+                      const meta = ownerId ? (metasMap.get(ownerId) || null) : null;
+                      const valorAcumulado = meta?.valor_acumulado || 0;
+                      const reunioes = ownerId ? (reunioesPorVendedor.get(ownerId) || 0) : 0;
+                      
+                      return (
+                        <div key={`closer-right-${vendedor}`} className="flex flex-col mb-4">
+                          {/* Header do vendedor */}
+                          <Card className="mb-0.5 flex-shrink-0 bg-transparent border-none">
+                            <CardHeader style={{ padding: 'clamp(0.5rem, 1vw, 0.75rem)' }}>
+                              <div className="flex items-center gap-1.5 md:gap-2">
+                                <User className="text-[#fed094] flex-shrink-0" style={{ width: 'clamp(1rem, 2.5vw, 1.5rem)', height: 'clamp(1rem, 2.5vw, 1.5rem)' }} />
+                                <CardTitle className="text-white truncate" style={{ fontSize: 'clamp(0.875rem, 2.5vw, 1.25rem)' }}>
+                                  {vendedor}
+                                </CardTitle>
+                              </div>
+                            </CardHeader>
+                          </Card>
+
+                          {/* Card de Meta */}
+                          {meta && (
+                            <div className="mb-0.5">
+                              <VendedorMetaCard
+                                vendedorNome={vendedor}
+                                meta={meta.meta}
+                                valorAcumulado={valorAcumulado}
+                                reunioes={reunioes}
+                              />
+                            </div>
+                          )}
+
+                          {/* Tabela de Forecast */}
+                          {(() => {
+                            const ownerId = VENDEDOR_IDS[vendedor];
+                            const forecasts = ownerId ? (forecastsMap.get(ownerId) || []) : [];
+                            const hoje = new Date().toISOString().split('T')[0];
+                            const forecastsHoje = forecasts.filter(f => f.data === hoje);
+                            return forecastsHoje.length > 0 ? (
+                              <div className="mb-0.5">
+                                <ForecastTable forecasts={forecastsHoje} vendedorNome={vendedor} />
+                              </div>
+                            ) : null;
+                          })()}
+
+                          {/* Negociações "Now" */}
+                          {items.map(({ negociacao }) => (
+                            <div 
+                              key={`closer-${vendedor}-${negociacao.id}`}
+                              className={cn(
+                                "w-full rounded-lg border-2 border-[#fed094] bg-[#1A1A1A]/80 shadow-lg shadow-[#fed094]/20",
+                                "flex items-center gap-3 px-4 py-3 transition-all hover:bg-[#1A1A1A] mb-0.5"
+                              )}
+                              style={{ 
+                                minHeight: 'clamp(60px, 8vh, 80px)',
+                                borderWidth: '2px',
+                              }}
+                            >
+                              <div 
+                                className="flex-shrink-0 flex items-center justify-center bg-[#fed094] text-[#1A1A1A] rounded-md px-2 py-1"
+                                style={{ animation: 'gentle-pulse 2s ease-in-out infinite' }}
+                              >
+                                <Check className="mr-1" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                <span className="font-bold" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>
+                                  In call
+                                </span>
+                              </div>
+                              
+                              <div className="flex-1 min-w-0">
+                                <h3 className="text-white font-semibold truncate" style={{ fontSize: 'clamp(0.875rem, 2vw, 1.125rem)' }}>
+                                  {negociacao.cliente}
+                                </h3>
+                              </div>
+                              
+                              <div className="flex-shrink-0">
+                                {(() => {
+                                  const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
+                                  return (
+                                    <Badge 
+                                      variant={statusInfo.variant} 
+                                      className="flex-shrink-0" 
+                                      style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)', padding: 'clamp(0.25rem, 0.5vw, 0.375rem) clamp(0.5rem, 0.8vw, 0.625rem)' }}
+                                    >
+                                      {statusInfo.label}
+                                    </Badge>
+                                  );
+                                })()}
+                              </div>
+                              
+                              {negociacao.numero && (
+                                <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
+                                  <Phone className="text-[#CCCCCC]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                  <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)' }}>
+                                    {negociacao.numero}
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <DollarSign className="text-[#fed094]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
+                                <span className="text-white font-bold" style={{ fontSize: 'clamp(0.875rem, 1.8vw, 1.125rem)' }}>
+                                  {negociacao.valor && negociacao.valor > 0 
+                                    ? formatCurrency(negociacao.valor)
+                                    : 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
+
           </>
         )}
       </div>

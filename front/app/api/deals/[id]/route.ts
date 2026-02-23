@@ -17,8 +17,8 @@ export async function GET(
       );
     }
 
-    // Construir URL do backend
-    const backendHost = process.env.BACKEND_URL || 'http://127.0.0.1:3001';
+    // Construir URL do backend - padrão: localhost:3002
+    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
     const backendUrl = `${backendHost}/api/deals/${dealId}`;
 
     console.log('🔄 [API ROUTE] Fazendo proxy para:', backendUrl);

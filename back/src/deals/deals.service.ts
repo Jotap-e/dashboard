@@ -223,8 +223,9 @@ export class DealsService {
    * @param ownerId ID do vendedor
    * @param pageNumber Número da página (padrão: 1)
    * @param pageSize Tamanho da página (padrão: 25)
+   * @param pipelineId ID do pipeline (opcional, usado para filtrar deals de SDRs)
    */
-  async getDealsByOwner(ownerId: string, pageNumber: number = 1, pageSize: number = 25): Promise<DealResponse> {
+  async getDealsByOwner(ownerId: string, pageNumber: number = 1, pageSize: number = 25, pipelineId?: string): Promise<DealResponse> {
     // Validar ownerId
     if (!ownerId || typeof ownerId !== 'string' || ownerId.trim() === '') {
       this.logger.error('❌ ownerId inválido:', ownerId);
@@ -243,7 +244,7 @@ export class DealsService {
       pageSize = 25;
     }
 
-    this.logger.log(`🔍 Buscando negociações para o vendedor: ${ownerId} (página ${pageNumber}, tamanho ${pageSize})`);
+    this.logger.log(`🔍 Buscando negociações para o vendedor: ${ownerId}${pipelineId ? ` (pipeline: ${pipelineId})` : ''} (página ${pageNumber}, tamanho ${pageSize})`);
 
     const accessToken = this.getEnvValue('RD_ACCESS_TOKEN');
 
@@ -256,11 +257,25 @@ export class DealsService {
       };
     }
 
-    // Construir URL com filtro e paginação
+    // Construir URL com filtro e paginação usando RDQL
     // Formato: ?filter=owner_id:<id do vendedor>&page[number]=1&page[size]=25
+    // Se pipeline_id for fornecido, combinar filtros com AND (espaço)
     const baseUrl = 'https://api.rd.services/crm/v2/deals';
     const cleanOwnerId = ownerId.trim();
-    const url = `${baseUrl}?filter=owner_id:${encodeURIComponent(cleanOwnerId)}&page[number]=${pageNumber}&page[size]=${pageSize}`;
+    const params = new URLSearchParams();
+    
+    // Construir filtro RDQL combinando owner_id e pipeline_id (se fornecido)
+    let filterRDQL = `owner_id:${cleanOwnerId}`;
+    if (pipelineId && pipelineId.trim() !== '') {
+      filterRDQL += ` pipeline_id:${pipelineId.trim()}`;
+    }
+    params.append('filter', filterRDQL);
+    
+    // Adicionar paginação
+    params.append('page[number]', pageNumber.toString());
+    params.append('page[size]', pageSize.toString());
+    
+    const url = `${baseUrl}?${params.toString()}`;
 
     try {
       this.logger.log(`📡 Fazendo requisição para: ${url}`);
@@ -535,6 +550,252 @@ export class DealsService {
       }
       const errorMessage = error.message || 'Erro desconhecido ao atualizar deal';
       this.logger.error('❌ Erro ao atualizar deal:', {
+        message: errorMessage,
+        stack: error.stack,
+        error,
+      });
+      throw new Error(`Erro ao conectar com a API RD Station: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Busca agendamentos de SDRs do dia atual e contabiliza reuniões por SDR
+   * 
+   * Esta função:
+   * 1. Usa o mesmo método makeHttpsGetRequest usado em getDealsByOwner (GET filtrado de deals)
+   * 2. Aplica filtros RDQL para buscar deals do funil "Advhub - SDR" (SDR_PIPELINE_ID)
+   * 3. Filtra apenas deals na etapa "Agendamento" (stage_id)
+   * 4. Após receber o JSON de deals, processa cada deal localmente:
+   *    - Verifica o campo customizado "data-do-agendamento"
+   *    - Se a data corresponder ao dia de hoje, verifica o campo "sdr-responsavel"
+   *    - Contabiliza reuniões para Rafael Ratão ou Gabriel baseado no nome
+   * 
+   * @returns Objeto com contagem de reuniões por SDR: { rafaelRatao: number, gabriel: number }
+   */
+  async getSdrAgendamentosHoje(): Promise<{ rafaelRatao: number; gabriel: number }> {
+    this.logger.log('📅 [SDR AGENDAMENTOS] Buscando agendamentos de SDRs');
+    
+    const accessToken = this.getEnvValue('RD_ACCESS_TOKEN');
+    const sdrPipelineId = this.getEnvValue('SDR_PIPELINE_ID'); // Funil "Advhub - SDR"
+    const stageIdAgendadoSdr = '683e06d61c455b00155ddd71'; // Etapa "Agendamento"
+    const campoDataAgendamento = '688f70b8c211ca00149b15d3'; // Campo customizado "Data de Agendamento" (para log)
+    const campoSdrResponsavel = '688f7166ebf8fb0014ef1f16'; // Campo customizado "SDR Responsável" (para log)
+    
+    this.logger.log(`📋 [SDR AGENDAMENTOS] Filtros configurados:`);
+    this.logger.log(`  - Pipeline SDR (Advhub - SDR): ${sdrPipelineId}`);
+    this.logger.log(`  - Etapa Agendamento: ${stageIdAgendadoSdr}`);
+
+    if (!accessToken) {
+      this.logger.error('❌ [SDR AGENDAMENTOS] RD_ACCESS_TOKEN não encontrado no .env');
+      throw {
+        statusCode: 500,
+        message: 'Token de acesso não configurado',
+        errors: [{ detail: 'Token de acesso não configurado' }],
+      };
+    }
+
+    if (!sdrPipelineId) {
+      this.logger.error('❌ [SDR AGENDAMENTOS] SDR_PIPELINE_ID não encontrado no .env');
+      throw {
+        statusCode: 500,
+        message: 'Pipeline ID não configurado',
+        errors: [{ detail: 'Pipeline ID não configurado' }],
+      };
+    }
+
+    // ============================================
+    // APLICAR FILTROS DE PIPELINE E ETAPA
+    // ============================================
+    // Usa a mesma estrutura de getDealsByOwner: makeHttpsGetRequest com filtros RDQL
+    // Filtros aplicados:
+    //   - pipeline_id: Funil "Advhub - SDR" (SDR_PIPELINE_ID)
+    //   - stage_id: Etapa "Agendamento"
+    const baseUrl = 'https://api.rd.services/crm/v2/deals';
+    const params = new URLSearchParams();
+    
+    // Combinar múltiplos filtros em uma única string RDQL usando espaço (AND implícito)
+    // Formato: filter=pipeline_id:xxx stage_id:yyy
+    // Isso retorna apenas deals que estão NO pipeline SDR E na etapa "Agendamento"
+    const filterRDQL = `pipeline_id:${sdrPipelineId} stage_id:${stageIdAgendadoSdr}`;
+    params.append('filter', filterRDQL);
+    
+    this.logger.log(`🔍 [SDR AGENDAMENTOS] Filtro RDQL combinado: ${filterRDQL}`);
+    
+    // Buscar todas as páginas (usar tamanho grande para pegar todos)
+    params.append('page[number]', '1');
+    params.append('page[size]', '100');
+    
+    const url = `${baseUrl}?${params.toString()}`;
+
+    try {
+      this.logger.log(`📡 [SDR AGENDAMENTOS] Fazendo requisição GET com filtros:`);
+      this.logger.log(`   URL: ${url}`);
+      this.logger.log(`   Filtro pipeline_id: ${sdrPipelineId}`);
+      this.logger.log(`   Filtro stage_id: ${stageIdAgendadoSdr}`);
+      
+      // ============================================
+      // VINCULADO AO GET FILTRADO DE DEALS
+      // ============================================
+      // Usa o mesmo método makeHttpsGetRequest usado em getDealsByOwner
+      // Isso garante consistência na forma como fazemos requisições ao RD Station
+      const response = await this.makeHttpsGetRequest(url, accessToken);
+      
+      // ============================================
+      // ANALISAR O JSON DE RESPOSTA DO RD STATION
+      // ============================================
+      // A resposta vem no mesmo formato de getDealsByOwner: { data: Deal[], links: {...} }
+      const deals: Deal[] = response.data || [];
+      this.logger.log(`✅ [SDR AGENDAMENTOS] ${deals.length} deals encontrados no funil "Advhub - SDR" na etapa "Agendamento"`);
+      
+      if (deals.length > 0) {
+        this.logger.log(`📦 [SDR AGENDAMENTOS] Exemplo de deal: ${JSON.stringify({ 
+          id: deals[0].id, 
+          name: deals[0].name, 
+          pipeline_id: deals[0].pipeline_id,
+          stage_id: deals[0].stage_id,
+          custom_fields_keys: Object.keys(deals[0].custom_fields || {}),
+          data_agendamento: deals[0].custom_fields?.[campoDataAgendamento],
+          sdr_responsavel: deals[0].custom_fields?.[campoSdrResponsavel]
+        }, null, 2)}`);
+      }
+
+      // ============================================
+      // PROCESSAR CADA DEAL DO JSON E CONTABILIZAR REUNIÕES
+      // ============================================
+      // Obter data atual no formato DD/MM/YYYY (formato brasileiro)
+      const hoje = new Date();
+      const dia = String(hoje.getDate()).padStart(2, '0');
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+      const ano = hoje.getFullYear();
+      const hojeFormatado = `${dia}/${mes}/${ano}`; // Formato DD/MM/YYYY
+      this.logger.log(`📅 [SDR AGENDAMENTOS] Processando ${deals.length} deals e verificando data-do-agendamento = ${hojeFormatado}`);
+      
+      // Contadores de reuniões por SDR
+      let rafaelRatao = 0;
+      let gabriel = 0;
+      
+      // Estatísticas
+      let dealsSemData = 0;
+      let dealsDataDiferente = 0;
+      let dealsSemSdr = 0;
+      let dealsSdrNaoReconhecido = 0;
+      
+      for (const deal of deals) {
+        // 1. Verificar campo data-do-agendamento (formato DD/MM/YYYY como string)
+        const dataAgendamento = deal.custom_fields?.[campoDataAgendamento];
+        
+        if (!dataAgendamento) {
+          dealsSemData++;
+          this.logger.debug(`⚠️ [SDR AGENDAMENTOS] Deal ${deal.id} não possui data de agendamento`);
+          continue;
+        }
+
+        // Converter para string e normalizar (remover espaços, etc)
+        let dataString: string;
+        try {
+          if (typeof dataAgendamento === 'string') {
+            dataString = dataAgendamento.trim();
+          } else {
+            // Se não for string, tentar converter
+            dataString = String(dataAgendamento).trim();
+          }
+          
+          // Remover hora se houver (formato pode ser DD/MM/YYYY HH:mm ou similar)
+          // Pegar apenas a parte da data antes de espaço ou outros caracteres
+          if (dataString.includes(' ')) {
+            dataString = dataString.split(' ')[0];
+          }
+          
+          // Validar formato DD/MM/YYYY
+          if (!/^\d{2}\/\d{2}\/\d{4}$/.test(dataString)) {
+            this.logger.warn(`⚠️ [SDR AGENDAMENTOS] Formato de data inválido (esperado DD/MM/YYYY): "${dataString}" (original: ${JSON.stringify(dataAgendamento)})`);
+            continue;
+          }
+        } catch (error) {
+          this.logger.warn(`⚠️ [SDR AGENDAMENTOS] Erro ao processar data do deal ${deal.id}:`, {
+            dataAgendamento,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+
+        // 2. Comparar strings diretamente no formato DD/MM/YYYY (sem hora)
+        if (dataString !== hojeFormatado) {
+          dealsDataDiferente++;
+          this.logger.debug(`⚠️ [SDR AGENDAMENTOS] Deal ${deal.id} tem data diferente: ${dataString} (hoje: ${hojeFormatado})`);
+          continue;
+        }
+
+        // 3. Se a data é hoje, verificar campo sdr-responsavel (string)
+        const sdrResponsavel = deal.custom_fields?.[campoSdrResponsavel];
+        
+        if (!sdrResponsavel) {
+          dealsSemSdr++;
+          this.logger.debug(`⚠️ [SDR AGENDAMENTOS] Deal ${deal.id} não possui SDR responsável`);
+          continue;
+        }
+
+        // Converter para string e normalizar (remover espaços extras)
+        let sdrNome: string = '';
+        
+        if (typeof sdrResponsavel === 'string') {
+          sdrNome = sdrResponsavel.trim();
+        } else if (typeof sdrResponsavel === 'object' && sdrResponsavel !== null) {
+          // Se for objeto, tentar extrair o valor string
+          sdrNome = (
+            sdrResponsavel.name || 
+            sdrResponsavel.label || 
+            sdrResponsavel.value || 
+            sdrResponsavel.text ||
+            sdrResponsavel.title ||
+            ''
+          ).trim();
+        } else {
+          sdrNome = String(sdrResponsavel).trim();
+        }
+        
+        this.logger.debug(`🔍 [SDR AGENDAMENTOS] Deal ${deal.id} - SDR responsável: "${sdrNome}"`);
+        
+        // 4. Comparar diretamente com as strings exatas "Rafael Ratão" ou "Gabriel"
+        if (sdrNome === 'Rafael Ratão') {
+          rafaelRatao++;
+          this.logger.log(`✅ [SDR AGENDAMENTOS] Reunião creditada para Rafael Ratão: Deal ${deal.id} - ${deal.name} (Data: ${dataString})`);
+        } else if (sdrNome === 'Gabriel') {
+          gabriel++;
+          this.logger.log(`✅ [SDR AGENDAMENTOS] Reunião creditada para Gabriel: Deal ${deal.id} - ${deal.name} (Data: ${dataString})`);
+        } else {
+          dealsSdrNaoReconhecido++;
+          this.logger.debug(`⚠️ [SDR AGENDAMENTOS] Deal ${deal.id} tem SDR não reconhecido: "${sdrNome}" (esperado: "Rafael Ratão" ou "Gabriel")`);
+        }
+      }
+      
+      this.logger.log(`📊 [SDR AGENDAMENTOS] Estatísticas:`);
+      this.logger.log(`   Total deals encontradas: ${deals.length}`);
+      this.logger.log(`   Reuniões creditadas - Rafael Ratão: ${rafaelRatao}, Gabriel: ${gabriel}`);
+      this.logger.log(`   Sem data: ${dealsSemData}`);
+      this.logger.log(`   Data diferente: ${dealsDataDiferente}`);
+      this.logger.log(`   Sem SDR: ${dealsSemSdr}`);
+      this.logger.log(`   SDR não reconhecido: ${dealsSdrNaoReconhecido}`);
+
+      this.logger.log(`✅ Retornando contagem: Rafael Ratão: ${rafaelRatao}, Gabriel: ${gabriel}`);
+      
+      return { rafaelRatao, gabriel };
+    } catch (error: any) {
+      if (error.statusCode) {
+        const errorMessage = error.response?.errors?.[0]?.detail || 'Erro desconhecido da API';
+        this.logger.error(`❌ Erro da API RD Station (${error.statusCode}):`, {
+          statusCode: error.statusCode,
+          message: errorMessage,
+          response: error.response,
+        });
+        throw {
+          statusCode: error.statusCode,
+          message: errorMessage,
+          errors: error.response?.errors || [{ detail: errorMessage }],
+        };
+      }
+      const errorMessage = error.message || 'Erro desconhecido ao buscar agendamentos';
+      this.logger.error('❌ Erro ao buscar agendamentos:', {
         message: errorMessage,
         stack: error.stack,
         error,

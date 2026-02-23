@@ -8,6 +8,7 @@ interface DealNowUpdate {
   is_now: boolean;
   updated_at: string;
   owner_id?: string;
+  cliente_nome?: string; // Nome do cliente para salvar reunião
 }
 
 interface DealNowData {
@@ -23,7 +24,24 @@ interface MetaDiaria {
   vendedor_nome: string;
   meta: number;
   valor_acumulado: number;
+  qtd_reunioes: number;
   updated_at: string;
+}
+
+interface Forecast {
+  id: string;
+  vendedorId: string;
+  vendedorNome: string;
+  clienteNome: string;
+  clienteNumero: string;
+  data: string;
+  horario: string;
+  valor: number;
+  observacoes: string;
+  primeiraCall: string; // Data da primeira call no formato YYYY-MM-DD
+  negociacaoId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface UseWebSocketOptions {
@@ -32,6 +50,7 @@ interface UseWebSocketOptions {
   onDashboardUpdated?: (state: Array<[string, DealNowData]>) => void; // Para painel: recebe estado completo
   onControleStateUpdated?: (state: Array<[string, string]>) => void; // Para controle: recebe estado de vendedores (vendedor_id -> deal_id)
   onMetasUpdated?: (state: Array<[string, MetaDiaria]>) => void; // Recebe estado de metas (vendedor_id -> MetaDiaria)
+  onForecastsUpdated?: (state: Array<[string, Forecast[]]>) => void; // Recebe estado de forecasts (vendedor_id -> Forecast[])
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (error: any) => void;
@@ -43,6 +62,7 @@ export function useWebSocket({
   onDashboardUpdated,
   onControleStateUpdated,
   onMetasUpdated,
+  onForecastsUpdated,
   onConnected,
   onDisconnected,
   onError,
@@ -56,6 +76,7 @@ export function useWebSocket({
   const onDashboardUpdatedRef = useRef(onDashboardUpdated);
   const onControleStateUpdatedRef = useRef(onControleStateUpdated);
   const onMetasUpdatedRef = useRef(onMetasUpdated);
+  const onForecastsUpdatedRef = useRef(onForecastsUpdated);
   const onConnectedRef = useRef(onConnected);
   const onDisconnectedRef = useRef(onDisconnected);
   const onErrorRef = useRef(onError);
@@ -66,14 +87,15 @@ export function useWebSocket({
     onDashboardUpdatedRef.current = onDashboardUpdated;
     onControleStateUpdatedRef.current = onControleStateUpdated;
     onMetasUpdatedRef.current = onMetasUpdated;
+    onForecastsUpdatedRef.current = onForecastsUpdated;
     onConnectedRef.current = onConnected;
     onDisconnectedRef.current = onDisconnected;
     onErrorRef.current = onError;
-  }, [onDealUpdate, onDashboardUpdated, onControleStateUpdated, onMetasUpdated, onConnected, onDisconnected, onError]);
+  }, [onDealUpdate, onDashboardUpdated, onControleStateUpdated, onMetasUpdated, onForecastsUpdated, onConnected, onDisconnected, onError]);
 
   useEffect(() => {
     // Criar conexão WebSocket
-    const socket = io('http://localhost:3001/deals', {
+    const socket = io('http://localhost:3002/deals', {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -148,6 +170,12 @@ export function useWebSocket({
       onMetasUpdatedRef.current?.(state);
     });
 
+    // Evento de atualização de forecasts (para ambas as salas)
+    socket.on('forecastsUpdated', (state: Array<[string, Forecast[]]>) => {
+      console.log(`📡 [WebSocket] Estado de forecasts recebido (${room}):`, state.length, 'vendedores');
+      onForecastsUpdatedRef.current?.(state);
+    });
+
     // Limpeza ao desmontar
     return () => {
       console.log(`🔌 [WebSocket] Desconectando (${room})`);
@@ -159,8 +187,10 @@ export function useWebSocket({
       socket.off('deal-now-updated');
       socket.off('controleStateUpdated');
       socket.off('metasUpdated');
+      socket.off('forecastsUpdated');
       socket.off('deal-now-update-sent');
       socket.off('meta-update-sent');
+      socket.off('forecast-update-sent');
       socket.disconnect();
       socketRef.current = null;
     };
@@ -177,7 +207,14 @@ export function useWebSocket({
   }, [room]);
 
   // Função para enviar atualização de meta (apenas para controle)
-  const sendMetaUpdate = useCallback((data: { vendedor_id: string; vendedor_nome: string; meta: number }) => {
+  const sendMetaUpdate = useCallback((data: { 
+    vendedor_id: string; 
+    vendedor_nome: string; 
+    meta: number; 
+    valor_acumulado?: number;
+    negociacao_id?: string; // ID da negociação vendida (para salvar venda)
+    valor_negociacao?: number; // Valor da negociação vendida (para salvar venda)
+  }) => {
     if (socketRef.current && socketRef.current.connected && room === 'controle') {
       console.log(`📤 [WebSocket] Enviando atualização de meta:`, data);
       socketRef.current.emit('update-meta', data);
@@ -186,11 +223,22 @@ export function useWebSocket({
     }
   }, [room]);
 
+  // Função para enviar atualização de forecast (apenas para controle)
+  const sendForecastUpdate = useCallback((data: Forecast) => {
+    if (socketRef.current && socketRef.current.connected && room === 'controle') {
+      console.log(`📤 [WebSocket] Enviando atualização de forecast:`, data);
+      socketRef.current.emit('update-forecast', data);
+    } else {
+      console.warn(`⚠️ [WebSocket] Não é possível enviar forecast: socket não conectado ou não é sala controle`);
+    }
+  }, [room]);
+
   return {
     isConnected,
     error,
     sendDealUpdate,
     sendMetaUpdate,
+    sendForecastUpdate,
     socket: socketRef.current,
   };
 }

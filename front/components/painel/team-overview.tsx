@@ -1,15 +1,16 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Target, TrendingUp, Users } from 'lucide-react';
+import { Target, TrendingUp, Users, Phone } from 'lucide-react';
 
 interface TeamOverviewProps {
   metaTotal: number;
   valorAcumuladoTotal: number;
   vendedoresCount: number;
+  totalReunioes?: number;
 }
 
-export function TeamOverview({ metaTotal, valorAcumuladoTotal, vendedoresCount }: TeamOverviewProps) {
+export function TeamOverview({ metaTotal, valorAcumuladoTotal, vendedoresCount, totalReunioes = 0 }: TeamOverviewProps) {
   const percentual = metaTotal > 0 ? (valorAcumuladoTotal / metaTotal) * 100 : 0;
   
   const formatCurrency = (value: number) => {
@@ -22,7 +23,7 @@ export function TeamOverview({ metaTotal, valorAcumuladoTotal, vendedoresCount }
   };
 
   return (
-    <Card className="mb-2 bg-gradient-to-r from-[#2A2A2A] to-[#1A1A1A] border border-[#fed094]/30">
+    <Card className="mb-2 bg-[#2A2A2A]/50 border border-[#fed094]/30">
       <CardHeader style={{ padding: 'clamp(0.75rem, 1.2vw, 1rem)' }}>
         <CardTitle className="flex items-center gap-1.5 md:gap-2 text-white" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.5rem)' }}>
           <Users className="text-[#fed094] flex-shrink-0" style={{ width: 'clamp(1.25rem, 2.5vw, 1.75rem)', height: 'clamp(1.25rem, 2.5vw, 1.75rem)' }} />
@@ -74,30 +75,41 @@ export function TeamOverview({ metaTotal, valorAcumuladoTotal, vendedoresCount }
               {percentual.toFixed(1)}%
             </span>
           </div>
+
+          {/* Total de Reuniões */}
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 md:gap-2 mb-1.5 md:mb-2">
+              <Phone className="text-[#22c55e] flex-shrink-0" style={{ width: 'clamp(1rem, 2vw, 1.25rem)', height: 'clamp(1rem, 2vw, 1.25rem)' }} />
+              <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.75rem, 1.8vw, 0.9375rem)' }}>
+                Reuniões
+              </span>
+            </div>
+            <span className="text-white font-bold truncate" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.75rem)' }}>
+              {totalReunioes}
+            </span>
+          </div>
         </div>
 
         {/* Barra de progresso */}
-        {metaTotal > 0 && (
-          <div className="mt-3 md:mt-4">
-            <div className="w-full bg-[#1A1A1A] rounded-full" style={{ height: 'clamp(0.5rem, 1vw, 0.875rem)' }}>
-              <div
-                className="bg-gradient-to-r from-[#fed094] to-[#f59e0b] rounded-full transition-all duration-300"
-                style={{
-                  height: '100%',
-                  width: `${Math.min(percentual, 100)}%`,
-                }}
-              />
-            </div>
-            <div className="flex justify-between mt-1.5 md:mt-2 gap-2">
-              <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
-                {vendedoresCount} vendedor{vendedoresCount !== 1 ? 'es' : ''}
-              </span>
-              <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
-                {formatCurrency(Math.max(0, metaTotal - valorAcumuladoTotal))} restante
-              </span>
-            </div>
+        <div className="mt-3 md:mt-4">
+          <div className="w-full bg-[#1A1A1A] rounded-full" style={{ height: 'clamp(0.5rem, 1vw, 0.875rem)' }}>
+            <div
+              className="bg-gradient-to-r from-[#fed094] to-[#f59e0b] rounded-full transition-all duration-300"
+              style={{
+                height: '100%',
+                width: `${Math.min(percentual, 100)}%`,
+              }}
+            />
           </div>
-        )}
+          <div className="flex justify-between mt-1.5 md:mt-2 gap-2">
+            <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
+              {vendedoresCount} vendedor{vendedoresCount !== 1 ? 'es' : ''}
+            </span>
+            <span className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
+              {formatCurrency(Math.max(0, metaTotal - valorAcumuladoTotal))} restante
+            </span>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

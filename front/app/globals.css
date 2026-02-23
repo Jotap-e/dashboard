@@ -131,18 +131,28 @@
   overflow: hidden;
 }
 
-/* Animação do indicador "now" */
+/* Animação do indicador "In call" - pulso suave */
 @keyframes pulse-glow {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+    transform: scale(1);
   }
   50% {
-    opacity: 0.8;
-    box-shadow: 0 0 16px rgba(74, 222, 128, 0.6);
+    opacity: 0.85;
+    transform: scale(1.02);
   }
 }
 
 .now-indicator {
   animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Animação de pulso suave para "In call" */
+@keyframes gentle-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }

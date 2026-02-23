@@ -7,7 +7,34 @@ export const VENDEDOR_IDS: Record<string, string> = {
   'Thalia Batista': '69824580b58d7a00132a276c',
   'Vinicius Oliveira': '69330c5c687733001309154c',
   'Yuri Rafael dos Santos': '6978eabe122529001e60f427',
+  'Gabriel': '6977ff083826b100179751c5',
+  'Rafael Ratão': '6936c73f7f78ac001e4278e0',
 };
+
+/**
+ * Tipo de vendedor: Closer ou SDR
+ */
+export type TipoVendedor = 'closer' | 'sdr';
+
+/**
+ * Mapeamento de vendedores para seus tipos (Closer ou SDR)
+ */
+export const VENDEDOR_TIPOS: Record<string, TipoVendedor> = {
+  'João Vitor Martins Ribeiro': 'closer',
+  'Pedro': 'closer',
+  'Thalia Batista': 'closer',
+  'Vinicius Oliveira': 'closer',
+  'Yuri Rafael dos Santos': 'closer',
+  'Gabriel': 'sdr',
+  'Rafael Ratão': 'sdr',
+};
+
+/**
+ * Obtém o tipo do vendedor (closer ou sdr)
+ */
+export function getVendedorTipo(vendedorNome: string): TipoVendedor | null {
+  return VENDEDOR_TIPOS[vendedorNome] || null;
+}
 
 /**
  * Remove acentos de uma string para normalização
@@ -36,6 +63,10 @@ export const SLUG_TO_VENDEDOR: Record<string, string> = {
   'vinicius-oliveira': 'Vinicius Oliveira',
   'yuri-rafael-dos-santos': 'Yuri Rafael dos Santos',
   'yuri': 'Yuri Rafael dos Santos',
+  'gabriel': 'Gabriel',
+  'rafael-ratão': 'Rafael Ratão',
+  'rafael-ratao': 'Rafael Ratão',
+  'rafael': 'Rafael Ratão',
 };
 
 /**

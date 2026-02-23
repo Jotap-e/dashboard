@@ -1,15 +1,16 @@
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
-import { Target, TrendingUp } from 'lucide-react';
+import { Target, TrendingUp, Phone } from 'lucide-react';
 
 interface VendedorMetaCardProps {
   vendedorNome: string;
   meta: number;
   valorAcumulado: number;
+  reunioes?: number;
 }
 
-export function VendedorMetaCard({ vendedorNome, meta, valorAcumulado }: VendedorMetaCardProps) {
+export function VendedorMetaCard({ vendedorNome, meta, valorAcumulado, reunioes = 0 }: VendedorMetaCardProps) {
   const percentual = meta > 0 ? (valorAcumulado / meta) * 100 : 0;
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -25,28 +26,41 @@ export function VendedorMetaCard({ vendedorNome, meta, valorAcumulado }: Vendedo
       <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 0.875rem)' }}>
         <div className="space-y-1.5 md:space-y-2">
           {/* Meta */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 md:gap-2">
               <Target className="text-[#fed094] flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.8vw, 1.125rem)', height: 'clamp(0.875rem, 1.8vw, 1.125rem)' }} />
               <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
                 Meta:
               </span>
             </div>
-            <span className="text-white font-semibold truncate" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 0.9375rem)' }}>
+            <span className="text-white font-semibold truncate text-left" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 0.9375rem)' }}>
               {formatCurrency(meta)}
             </span>
           </div>
 
           {/* Valor Acumulado */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 md:gap-2">
               <TrendingUp className="text-[#3b82f6] flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.8vw, 1.125rem)', height: 'clamp(0.875rem, 1.8vw, 1.125rem)' }} />
               <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
                 Acumulado:
               </span>
             </div>
-            <span className="text-white font-semibold truncate" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 0.9375rem)' }}>
+            <span className="text-white font-semibold truncate text-left" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 0.9375rem)' }}>
               {formatCurrency(valorAcumulado)}
+            </span>
+          </div>
+
+          {/* Reuniões */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <Phone className="text-[#22c55e] flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.8vw, 1.125rem)', height: 'clamp(0.875rem, 1.8vw, 1.125rem)' }} />
+              <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
+                Reuniões:
+              </span>
+            </div>
+            <span className="text-white font-semibold truncate text-left" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 0.9375rem)' }}>
+              {reunioes}
             </span>
           </div>
 

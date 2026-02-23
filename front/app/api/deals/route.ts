@@ -5,19 +5,23 @@ export async function GET(request: NextRequest) {
     // Extrair query parameters da URL
     const { searchParams } = new URL(request.url);
     const ownerId = searchParams.get('owner_id');
+    const pipelineId = searchParams.get('pipeline_id');
     const page = searchParams.get('page') || '1';
     const size = searchParams.get('size') || '25';
 
     console.log('🔄 [API ROUTE] ============================================');
     console.log('🔄 [API ROUTE] Recebendo requisição /api/deals');
-    console.log('🔄 [API ROUTE] Query params:', { owner_id: ownerId, page, size });
+    console.log('🔄 [API ROUTE] Query params:', { owner_id: ownerId, pipeline_id: pipelineId, page, size });
     console.log('🔄 [API ROUTE] Request URL:', request.url);
 
-    // Construir URL do backend - usar 127.0.0.1 para evitar problemas de DNS com localhost
-    const backendHost = process.env.BACKEND_URL || 'http://127.0.0.1:3001';
+    // Construir URL do backend - padrão: localhost:3002
+    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
     const backendUrl = new URL(`${backendHost}/api/deals`);
     if (ownerId) {
       backendUrl.searchParams.append('owner_id', ownerId);
+    }
+    if (pipelineId) {
+      backendUrl.searchParams.append('pipeline_id', pipelineId);
     }
     backendUrl.searchParams.append('page', page);
     backendUrl.searchParams.append('size', size);
@@ -122,7 +126,7 @@ export async function GET(request: NextRequest) {
     return Response.json(
       { 
         errors: [{ 
-          detail: error?.message || 'Erro ao conectar com o backend. Verifique se está rodando em localhost:3001' 
+          detail: error?.message || 'Erro ao conectar com o backend. Verifique se está rodando em http://localhost:3002' 
         }] 
       },
       { status: 500 }

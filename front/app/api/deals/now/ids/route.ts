@@ -8,7 +8,9 @@ export async function GET(request: NextRequest) {
   try {
     console.log('📋 [API ROUTE] Buscando IDs de deals com flag "now"');
 
-    const backendUrl = 'http://127.0.0.1:3001/api/deals/now/ids';
+    // Construir URL do backend - padrão: localhost:3002
+    const backendHost = process.env.BACKEND_URL || 'http://localhost:3002';
+    const backendUrl = `${backendHost}/api/deals/now/ids`;
     
     const response = await fetch(backendUrl, {
       method: 'GET',

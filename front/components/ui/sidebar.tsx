@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { LayoutDashboard, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { LayoutDashboard, ChevronLeft, ChevronRight, Settings, Target, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useSidebar } from '@/components/layout/sidebar-context';
@@ -51,9 +51,9 @@ export function Sidebar({ className }: SidebarProps) {
       path: '/painel',
     },
     {
-      title: 'Controle',
-      icon: Settings,
-      path: '/controle',
+      title: 'Closers',
+      icon: Target,
+      path: '/controle-closers',
     },
   ];
 
@@ -151,7 +151,7 @@ export function Sidebar({ className }: SidebarProps) {
           const isActive = 
             pathname === item.path || 
             (item.path === '/painel' && pathname === '/') ||
-            (item.path === '/controle' && pathname.startsWith('/controle'));
+            (item.path === '/controle-closers' && pathname.startsWith('/controle-closers'));
 
           return (
             <button
