@@ -1,7 +1,8 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post, HttpCode, HttpStatus } from '@nestjs/common';
 import { AppService } from './app.service';
 import { DealsService } from './deals/deals.service';
 import { DatabaseService } from './database/database.service';
+import { DealsGateway } from './websocket/deals.gateway';
 
 @Controller()
 export class AppController {
@@ -9,6 +10,7 @@ export class AppController {
     private readonly appService: AppService,
     private readonly dealsService: DealsService,
     private readonly databaseService: DatabaseService,
+    private readonly dealsGateway: DealsGateway,
   ) {}
 
   @Get()
@@ -89,5 +91,16 @@ export class AppController {
         stack: error.stack,
       };
     }
+  }
+
+  @Post('finalizar-dia')
+  @HttpCode(HttpStatus.OK)
+  async finalizarDia() {
+    const result = await this.dealsGateway.finalizarDia();
+    return {
+      success: true,
+      message: 'Dia finalizado com sucesso',
+      dealsCleared: result.dealsCleared,
+    };
   }
 }

@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 export interface Forecast {
   id: string;
   vendedorId: string;
-  vendedorNome: string;
+  closerNome: string;
   clienteNome: string;
   clienteNumero: string;
   data: string;
@@ -34,11 +34,11 @@ export class ForecastsStateService {
     if (index >= 0) {
       // Atualizar forecast existente
       existing[index] = { ...forecast, updatedAt: new Date().toISOString() };
-      this.logger.log(`📝 Forecast atualizado: ${forecast.id} para vendedor ${forecast.vendedorNome}`);
+      this.logger.log(`📝 Forecast atualizado: ${forecast.id} para closer ${forecast.closerNome}`);
     } else {
       // Adicionar novo forecast
       existing.push(forecast);
-      this.logger.log(`➕ Forecast adicionado: ${forecast.id} para vendedor ${forecast.vendedorNome}`);
+      this.logger.log(`➕ Forecast adicionado: ${forecast.id} para closer ${forecast.closerNome}`);
     }
     
     this.forecastsMap.set(forecast.vendedorId, existing);

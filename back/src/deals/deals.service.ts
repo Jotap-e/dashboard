@@ -559,6 +559,53 @@ export class DealsService {
   }
 
   /**
+   * Remove a flag "now" de todos os deals no RD Station.
+   * Usado ao finalizar o dia para limpar o estado.
+   */
+  async clearAllDealsNow(): Promise<{ cleared: number }> {
+    this.logger.log('🧹 Removendo flag "now" de todos os deals no RD Station');
+
+    const accessToken = this.getEnvValue('RD_ACCESS_TOKEN');
+    if (!accessToken) {
+      this.logger.error('❌ RD_ACCESS_TOKEN não encontrado no .env');
+      throw {
+        statusCode: 500,
+        message: 'Token de acesso não configurado',
+        errors: [{ detail: 'Token de acesso não configurado' }],
+      };
+    }
+
+    try {
+      const response = await this.getDealsWithNow();
+      const dealsWithNow = response.data || [];
+      let cleared = 0;
+
+      for (const deal of dealsWithNow) {
+        try {
+          const updateUrl = `https://api.rd.services/crm/v2/deals/${deal.id}`;
+          const updateBody = {
+            custom_fields: {
+              ...(deal.custom_fields || {}),
+              is_now: false,
+            },
+          };
+          await this.makeHttpsPatchRequest(updateUrl, accessToken, updateBody);
+          cleared++;
+          this.logger.log(`✅ Flag "now" removida do deal ${deal.id}`);
+        } catch (err: any) {
+          this.logger.warn(`⚠️ Erro ao remover "now" do deal ${deal.id}:`, err.message);
+        }
+      }
+
+      this.logger.log(`✅ ${cleared} deals tiveram flag "now" removida`);
+      return { cleared };
+    } catch (error: any) {
+      this.logger.error('❌ Erro ao limpar deals "now":', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Busca agendamentos de SDRs do dia atual e contabiliza reuniões por SDR
    * 
    * Esta função:

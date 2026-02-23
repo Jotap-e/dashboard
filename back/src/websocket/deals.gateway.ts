@@ -22,7 +22,9 @@ interface DealNowUpdate {
   is_now: boolean;
   updated_at: string;
   owner_id?: string;
-  cliente_nome?: string; // Nome do cliente para salvar reunião
+  vendedor_nome?: string; // Nome do vendedor responsável pelo controle
+  cliente_nome?: string; // Nome do cliente (da deal)
+  cliente_numero?: string; // Telefone do cliente
 }
 
 @WebSocketGateway({
@@ -90,6 +92,40 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
+   * Sincroniza forecasts do banco com o estado em memória (para o dia atual).
+   * Garante que o WebSocket reflita o que está no banco.
+   */
+  private async syncForecastsFromDatabase(): Promise<void> {
+    try {
+      const hoje = new Date().toISOString().split('T')[0];
+      const forecastsFromDb = await this.databaseOperationsService.getForecastsByDate(hoje);
+      if (forecastsFromDb.length > 0) {
+        for (const doc of forecastsFromDb) {
+          const forecast: Forecast = {
+            id: doc.id,
+            vendedorId: doc.vendedorId,
+            closerNome: doc.closerNome,
+            clienteNome: doc.clienteNome,
+            clienteNumero: doc.clienteNumero,
+            data: doc.data,
+            horario: doc.horario,
+            valor: doc.valor,
+            observacoes: doc.observacoes || '',
+            primeiraCall: doc.primeiraCall,
+            negociacaoId: doc.negociacaoId,
+            createdAt: doc.createdAt,
+            updatedAt: doc.updatedAt,
+          };
+          this.forecastsStateService.setForecast(forecast);
+        }
+        this.logger.log(`📥 [GATEWAY] Forecasts sincronizados do banco: ${forecastsFromDb.length} registros`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`⚠️ [GATEWAY] Erro ao sincronizar forecasts do banco: ${error?.message}`);
+    }
+  }
+
+  /**
    * Cliente se junta à sala 'painel' para receber atualizações
    * Envia o estado atual imediatamente ao conectar
    */
@@ -99,6 +135,9 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.connectedClients.set(client.id, { socket: client, room: 'painel' });
     this.logger.log(`Cliente ${client.id} entrou na sala 'painel'`);
     
+    // Sincronizar forecasts do banco antes de enviar estado
+    await this.syncForecastsFromDatabase();
+
     // Enviar estado atual de deals imediatamente ao conectar
     const currentState = this.dealsStateService.getAllDealsNow();
     this.logger.log(`📤 [GATEWAY] Enviando estado atual de deals para painel: ${currentState.length} deals`);
@@ -130,6 +169,9 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.connectedClients.set(client.id, { socket: client, room: 'controle' });
     this.logger.log(`Cliente ${client.id} entrou na sala 'controle'`);
     
+    // Sincronizar forecasts do banco antes de enviar estado
+    await this.syncForecastsFromDatabase();
+    
     // Enviar estado atual de deals "now" por vendedor imediatamente ao conectar
     const vendedorNowState = this.dealsStateService.getAllVendedorNow();
     this.logger.log(`📤 [GATEWAY] Enviando estado atual de deals para controle: ${vendedorNowState.length} vendedores`);
@@ -149,6 +191,40 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('forecastsUpdated', currentForecasts);
     
     client.emit('joined', { room: 'controle' });
+  }
+
+  /**
+   * Obtém o nome do vendedor pelo ID (owner_id do RD Station)
+   */
+  private getVendedorNomeById(ownerId: string): string {
+    const envPath = path.join(process.cwd(), '.env');
+    const idToName: Record<string, string> = {
+      '6936c37038809600166ca22a': 'João Vitor Martins Ribeiro',
+      '6924898ebc81ed0013af4f98': 'Pedro',
+      '69824580b58d7a00132a276c': 'Thalia Batista',
+      '69330c5c687733001309154c': 'Vinicius Oliveira',
+      '6978eabe122529001e60f427': 'Yuri Rafael dos Santos',
+      '696653f3f2fbf40016c11ea4': 'Gabriel',
+      '6936c73f7f78ac001e4278e0': 'Rafael Ratão',
+    };
+    if (idToName[ownerId]) return idToName[ownerId];
+    try {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      const lines = envContent.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+        const [key, ...valParts] = trimmed.split('=');
+        const value = valParts.join('=').trim();
+        if (value === ownerId) {
+          const name = key.replace(/^(CLOSER_|SDR_)_?/, '').replace(/_ID$/, '').replace(/_/g, ' ');
+          return name.split(' ').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`⚠️ Erro ao obter nome do vendedor ${ownerId}`);
+    }
+    return 'Vendedor';
   }
 
   /**
@@ -222,7 +298,7 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * e envia para todos os clientes na sala 'painel'
    */
   @SubscribeMessage('update-deal-now')
-  handleUpdateDealNow(
+  async handleUpdateDealNow(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: DealNowUpdate,
   ) {
@@ -275,45 +351,56 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         owner_id: data.owner_id,
       });
       
-      // Incrementar contagem de reuniões quando um closer define um deal como "agora"
+      // Atualizar reuniões em todo "now" definido
       if (data.owner_id) {
-        const metaAntes = this.metasStateService.getMeta(data.owner_id);
-        const totalReunioesAntes = metaAntes?.qtd_reunioes || 0;
-        
+        // Nome do vendedor responsável pelo controle: enviado no payload ou obtido pelo owner_id
+        const vendedorNome = data.vendedor_nome?.trim() || this.getVendedorNomeById(data.owner_id);
+
+        // Garantir que o vendedor tenha meta (criar se não existir)
+        if (!this.metasStateService.getMeta(data.owner_id)) {
+          this.metasStateService.setMeta(data.owner_id, vendedorNome, 0, 0);
+        }
+
         this.metasStateService.incrementarReunioes(data.owner_id);
-        
-        const metaDepois = this.metasStateService.getMeta(data.owner_id);
-        const totalReunioesVendedor = metaDepois?.qtd_reunioes || 0;
-        
-        // Calcular total de reuniões do time
-        const todasMetas = this.metasStateService.getAllMetas();
-        const totalReunioesTime = todasMetas.reduce((total, [_, meta]) => {
-          return total + (meta.qtd_reunioes || 0);
-        }, 0);
-        
-        // Buscar nome do cliente (precisamos buscar do deal)
-        // Por enquanto, vamos usar um valor padrão e melhorar depois
-        const clienteNome = 'Cliente'; // TODO: Buscar do deal real
-        
-        // Salvar reunião no MongoDB
+
+        // Buscar nome e número do cliente na deal (RD Station) - fonte de verdade
+        let clienteNome = data.cliente_nome || 'Cliente';
+        let clienteNumero = data.cliente_numero;
+        try {
+          const deal = await this.dealsService.getDealById(data.deal_id);
+          if (deal?.name) clienteNome = deal.name;
+          if (!clienteNumero && deal?.custom_fields) {
+            clienteNumero =
+              (deal.custom_fields.numero as string) ||
+              (deal.custom_fields.telefone as string) ||
+              (deal.custom_fields.phone as string) ||
+              undefined;
+          }
+        } catch (err) {
+          this.logger.warn(`⚠️ Não foi possível buscar deal ${data.deal_id} para nome do cliente, usando dados do frontend`);
+        }
+
+        // Salvar reunião no MongoDB (contagem via GET /reunioes?vendedorId=xxx)
         this.databaseOperationsService.saveReuniao(
           data.owner_id,
-          metaDepois?.vendedor_nome || 'Vendedor',
+          vendedorNome,
           data.deal_id,
           clienteNome,
-          totalReunioesVendedor,
-          totalReunioesTime,
+          clienteNumero,
         ).catch((error) => {
           this.logger.error('❌ Erro ao salvar reunião no MongoDB:', error);
         });
         
-        // Enviar estado atualizado de metas para todos os clientes
         const updatedMetas = this.metasStateService.getAllMetas();
         this.server.to('painel').emit('metasUpdated', updatedMetas);
         this.server.to('controle').emit('metasUpdated', updatedMetas);
       }
     } else {
       this.dealsStateService.removeDealNow(data.deal_id);
+      // Emitir metas atualizadas após remover "now" para sincronizar
+      const updatedMetas = this.metasStateService.getAllMetas();
+      this.server.to('painel').emit('metasUpdated', updatedMetas);
+      this.server.to('controle').emit('metasUpdated', updatedMetas);
     }
 
     // Enviar estado atualizado completo para todos os clientes na sala 'painel'
@@ -382,13 +469,6 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    // Verificar se é uma venda (valor_acumulado aumentou)
-    const metaAntes = this.metasStateService.getMeta(data.vendedor_id);
-    const valorAcumuladoAntes = metaAntes?.valor_acumulado || 0;
-    const isVenda = typeof data.valor_acumulado === 'number' 
-      && data.valor_acumulado > valorAcumuladoAntes
-      && data.valor_acumulado > 0;
-    
     // Atualizar estado em memória
     // Se valor_acumulado foi fornecido, passar para setMeta para garantir sincronização
     if (typeof data.valor_acumulado === 'number' && data.valor_acumulado >= 0) {
@@ -398,32 +478,8 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.metasStateService.setMeta(data.vendedor_id, data.vendedor_nome, data.meta);
     }
     
-    // Se é uma venda, salvar no MongoDB
-    if (isVenda) {
-      // Usar valor_negociacao do frontend se fornecido, senão calcular
-      const valorNegociacao = data.valor_negociacao || (data.valor_acumulado - valorAcumuladoAntes);
-      
-      // Calcular valor acumulado total do time
-      const todasMetas = this.metasStateService.getAllMetas();
-      const valorAcumuladoTime = todasMetas.reduce((total, [_, meta]) => {
-        return total + (meta.valor_acumulado || 0);
-      }, 0);
-      
-      // Usar negociacao_id do frontend se fornecido
-      const negociacaoId = data.negociacao_id || 'unknown';
-      
-      // Salvar venda no MongoDB
-      this.databaseOperationsService.saveVenda(
-        data.vendedor_id,
-        data.vendedor_nome,
-        negociacaoId,
-        valorNegociacao,
-        data.valor_acumulado,
-        valorAcumuladoTime,
-      ).catch((error) => {
-        this.logger.error('❌ Erro ao salvar venda no MongoDB:', error);
-      });
-    }
+    // Venda é salva via POST /api/vendas pelo frontend ao clicar em "Vendido"
+    // O WebSocket apenas sincroniza o valor acumulado em tempo real
 
     // Enviar estado atualizado de metas para todos os clientes nas salas 'painel' e 'controle'
     const updatedMetas = this.metasStateService.getAllMetas();
@@ -451,13 +507,13 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`📡 Recebida atualização de forecast:`, {
       forecast_id: data.id,
       vendedor_id: data.vendedorId,
-      vendedor_nome: data.vendedorNome,
+      closer_nome: data.closerNome,
       cliente: data.clienteNome,
       from: client.id,
     });
 
     // Validar dados
-    if (!data.id || !data.vendedorId || !data.vendedorNome || !data.clienteNome) {
+    if (!data.id || !data.vendedorId || !data.closerNome || !data.clienteNome) {
       this.logger.warn(`⚠️ Dados inválidos recebidos de ${client.id}`);
       client.emit('error', { message: 'Dados inválidos' });
       return;
@@ -483,5 +539,63 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       success: true,
       forecast_id: data.id,
     });
+  }
+
+  /**
+   * Recebe solicitação de remoção de forecast
+   */
+  @SubscribeMessage('delete-forecast')
+  handleDeleteForecast(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { forecastId: string; vendedorId: string },
+  ) {
+    if (!data.forecastId || !data.vendedorId) {
+      client.emit('error', { message: 'Dados inválidos: forecastId e vendedorId obrigatórios' });
+      return;
+    }
+
+    this.forecastsStateService.removeForecast(data.forecastId, data.vendedorId);
+
+    const updatedForecasts = this.forecastsStateService.getAllForecasts();
+    this.server.to('painel').emit('forecastsUpdated', updatedForecasts);
+    this.server.to('controle').emit('forecastsUpdated', updatedForecasts);
+
+    this.logger.log(`🗑️ Forecast removido: ${data.forecastId}`);
+    client.emit('forecast-delete-sent', { success: true, forecast_id: data.forecastId });
+  }
+
+  /**
+   * Finaliza o dia: remove flag "now" dos deals no RD, limpa estado em memória
+   * e emite para todos os clientes (painel e controle) para limpar a UI.
+   */
+  async finalizarDia(): Promise<{ success: boolean; dealsCleared?: number }> {
+    this.logger.log('🏁 Iniciando finalização do dia...');
+
+    try {
+      // 1. Remover flag "now" de todos os deals no RD Station
+      const { cleared } = await this.dealsService.clearAllDealsNow();
+      this.logger.log(`✅ ${cleared} deals tiveram flag "now" removida no RD Station`);
+
+      // 2. Limpar estado em memória
+      this.dealsStateService.clear();
+      this.metasStateService.clear();
+      this.forecastsStateService.clearAll();
+      this.logger.log('✅ Estado em memória limpo (deals, metas, forecasts)');
+
+      // 3. Emitir para todos os clientes para limpar a UI
+      this.server.to('painel').emit('dashboardUpdated', []);
+      this.server.to('painel').emit('metasUpdated', []);
+      this.server.to('painel').emit('forecastsUpdated', []);
+      this.server.to('controle').emit('controleStateUpdated', []);
+      this.server.to('controle').emit('metasUpdated', []);
+      this.server.to('controle').emit('forecastsUpdated', []);
+      this.logger.log('✅ Estado vazio emitido para painel e controle');
+
+      this.logger.log('🏁 Dia finalizado com sucesso');
+      return { success: true, dealsCleared: cleared };
+    } catch (error: any) {
+      this.logger.error('❌ Erro ao finalizar dia:', error.message);
+      throw error;
+    }
   }
 }
