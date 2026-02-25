@@ -8,15 +8,15 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MetaInput } from '@/components/controle/meta-input';
-import { ForecastForm } from '@/components/controle/forecast-form';
-import { ReuniaoForm } from '@/components/controle/reuniao-form';
+import { ClassificacaoSelector } from '@/components/controle/classificacao-selector';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Negociacao } from '@/lib/types/negociacoes';
-import { ForecastFormData, Forecast } from '@/lib/types/forecast';
-import { ReuniaoFormData } from '@/lib/types/reuniao';
-import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw, PhoneCall } from 'lucide-react';
+import { Forecast, ClassificacaoForecast } from '@/lib/types/forecast';
+import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw, X, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getVendedorId, VENDEDOR_IDS, slugToVendedorName, getVendedorTipo } from '@/lib/utils/vendedores';
+import { AlertaReuniaoPopup } from '@/components/controle/alerta-reuniao-popup';
+import { useAlertaHoraProxima } from '@/lib/hooks/use-alerta-hora-proxima';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 
 interface MetaDiaria {
@@ -124,21 +124,47 @@ export default function ControleClosersPage() {
   // Estado para armazenar meta do vendedor
   const [metaVendedor, setMetaVendedor] = useState<MetaDiaria | null>(null);
   
-  // Estado para forecast selecionado (negociação que será usada para criar forecast)
-  const [negociacaoSelecionadaParaForecast, setNegociacaoSelecionadaParaForecast] = useState<Negociacao | null>(null);
+  // Estado para negociações selecionadas para classificação em massa
+  const [negociacoesSelecionadas, setNegociacoesSelecionadas] = useState<Set<string>>(new Set());
   
   // Estado para forecasts existentes do vendedor
   const [forecastsDoVendedor, setForecastsDoVendedor] = useState<Forecast[]>([]);
   
-  // Estado para forecast sendo editado
-  const [forecastSendoEditado, setForecastSendoEditado] = useState<Forecast | null>(null);
+  // Estado para mostrar seletor de classificação em massa
+  const [mostrarSeletorMassa, setMostrarSeletorMassa] = useState<boolean>(false);
   
-  // Estado para controlar criação manual de forecast (sem negociação)
-  const [criandoForecastManual, setCriandoForecastManual] = useState<boolean>(false);
+  // Componente de emoji animado para classificação
+  const EmojiClassificacao = ({ classificacao }: { classificacao?: ClassificacaoForecast }) => {
+    if (!classificacao) return null;
+    
+    switch (classificacao) {
+      case 'quente':
+        return (
+          <span className="inline-block animate-hot-face" style={{ fontSize: 'clamp(1rem, 1.5vw, 1.125rem)' }} title="Quente">
+            🥵
+          </span>
+        );
+      case 'morno':
+        return (
+          <span className="inline-block animate-neutral-face" style={{ fontSize: 'clamp(1rem, 1.5vw, 1.125rem)' }} title="Morno">
+            😐
+          </span>
+        );
+      case 'frio':
+        return (
+          <span className="inline-block animate-cold-face" style={{ fontSize: 'clamp(1rem, 1.5vw, 1.125rem)' }} title="Frio">
+            🥶
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
   
-  // Estado para controlar criação manual de call (reunião)
-  const [criandoCallManual, setCriandoCallManual] = useState<boolean>(false);
-  const [savingReuniao, setSavingReuniao] = useState<boolean>(false);
+  // Função auxiliar para obter emoji da classificação (mantida para compatibilidade, mas agora retorna componente)
+  const getEmojiClassificacao = (classificacao?: ClassificacaoForecast): React.ReactNode => {
+    return <EmojiClassificacao classificacao={classificacao} />;
+  };
   
   // Estado para visualização (lista ou cards)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'cards'>('cards');
@@ -148,6 +174,8 @@ export default function ControleClosersPage() {
   
   // Sempre mostrar loading inicial para evitar erro de hidratação
   const [loading, setLoading] = useState<boolean>(true);
+  // Estado do alerta de hora próxima (sincronizado com o painel)
+  const alertaEstado = useAlertaHoraProxima(forecastsDoVendedor);
   
   // Carregar do localStorage apenas no cliente (após hidratação)
   useEffect(() => {
@@ -190,6 +218,7 @@ export default function ControleClosersPage() {
                 observacoes: f.observacoes || '',
                 primeiraCall: f.primeiraCall,
                 negociacaoId: f.negociacaoId,
+                classificacao: f.classificacao || 'morno', // Default para 'morno' se não existir
                 createdAt: f.createdAt,
                 updatedAt: f.updatedAt,
               }));
@@ -200,8 +229,13 @@ export default function ControleClosersPage() {
               const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
               if (storedForecasts) {
                 const parsed = JSON.parse(storedForecasts);
-                console.log('📂 [CONTROLE] Forecasts carregados do localStorage:', parsed.length);
-                setForecastsDoVendedor(parsed);
+                // Garantir que forecasts antigos tenham classificação padrão
+                const parsedComClassificacao = parsed.map((f: Forecast) => ({
+                  ...f,
+                  classificacao: f.classificacao || 'morno',
+                }));
+                console.log('📂 [CONTROLE] Forecasts carregados do localStorage:', parsedComClassificacao.length);
+                setForecastsDoVendedor(parsedComClassificacao);
               } else {
                 setForecastsDoVendedor([]);
               }
@@ -211,7 +245,12 @@ export default function ControleClosersPage() {
             const storedForecasts = localStorage.getItem(STORAGE_KEY_FORECASTS);
             if (storedForecasts) {
               const parsed = JSON.parse(storedForecasts);
-              setForecastsDoVendedor(parsed);
+              // Garantir que forecasts antigos tenham classificação padrão
+              const parsedComClassificacao = parsed.map((f: Forecast) => ({
+                ...f,
+                classificacao: f.classificacao || 'morno',
+              }));
+              setForecastsDoVendedor(parsedComClassificacao);
             } else {
               setForecastsDoVendedor([]);
             }
@@ -368,7 +407,24 @@ export default function ControleClosersPage() {
       state.forEach(([vendedorId, forecasts]) => {
         forecastsMap.set(vendedorId, forecasts);
       });
-      const forecastsDoVendedor = forecastsMap.get(ownerId || '') || [];
+      const raw = forecastsMap.get(ownerId || '') || [];
+      // Normalizar para garantir classificacao e horario (evitar dados inconsistentes após refresh)
+      const forecastsDoVendedor: Forecast[] = raw.map((f: any) => ({
+        id: f.id,
+        vendedorId: f.vendedorId,
+        closerNome: f.closerNome || '',
+        clienteNome: f.clienteNome || '',
+        clienteNumero: f.clienteNumero || '',
+        data: f.data || '',
+        horario: f.horario || '',
+        valor: f.valor ?? 0,
+        observacoes: f.observacoes || '',
+        primeiraCall: f.primeiraCall || '',
+        negociacaoId: f.negociacaoId,
+        classificacao: (f.classificacao as ClassificacaoForecast) || 'morno',
+        createdAt: f.createdAt || '',
+        updatedAt: f.updatedAt || '',
+      }));
       setForecastsDoVendedor(forecastsDoVendedor);
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(forecastsDoVendedor));
@@ -400,236 +456,171 @@ export default function ControleClosersPage() {
     }
   }, [sendMetaUpdate, vendedorAtual]);
 
-  // Handler para salvar forecast (criar ou atualizar)
-  const handleSaveForecast = useCallback((forecastData: ForecastFormData) => {
-    if (!vendedorAtual) return;
+  // Handler para toggle de seleção de negociação
+  const handleToggleSelecao = useCallback((negociacaoId: string) => {
+    setNegociacoesSelecionadas(prev => {
+      const novo = new Set(prev);
+      if (novo.has(negociacaoId)) {
+        novo.delete(negociacaoId);
+      } else {
+        novo.add(negociacaoId);
+      }
+      return novo;
+    });
+  }, []);
+
+  // Handler para desmarcar todas
+  const handleDesmarcarTodas = useCallback(() => {
+    setNegociacoesSelecionadas(new Set());
+    setMostrarSeletorMassa(false);
+  }, []);
+
+  // Filtrar negociações pelo termo de pesquisa
+  const negociacoesFiltradas = useMemo(() => {
+    // Se há busca, usar todas as negociações acumuladas
+    const negociacoesParaFiltrar = searchTerm.trim() ? todasNegociacoes : negociacoesDoVendedor;
     
-    // Garantir que temos o ownerId (tentar obter novamente se não estiver disponível)
+    if (!searchTerm.trim()) {
+      return negociacoesParaFiltrar;
+    }
+    
+    const termoLower = searchTerm.toLowerCase().trim();
+    return negociacoesParaFiltrar.filter((negociacao) =>
+      negociacao.cliente.toLowerCase().includes(termoLower)
+    );
+  }, [negociacoesDoVendedor, todasNegociacoes, searchTerm]);
+
+  // Handler para classificação em massa
+  const handleClassificacaoMassa = useCallback((classificacao: ClassificacaoForecast) => {
+    if (!vendedorAtual || negociacoesSelecionadas.size === 0) return;
+    
+    // Garantir que temos o ownerId
     const currentOwnerId = ownerId || getVendedorId(vendedorAtual) || '';
     if (!currentOwnerId) {
       console.error('❌ [CONTROLE] Não foi possível obter ownerId para salvar forecast');
       return;
     }
     
-    // Se está editando um forecast existente
-    if (forecastSendoEditado) {
-      const forecastAtualizado: Forecast = {
-        ...forecastSendoEditado,
-        clienteNome: forecastData.clienteNome,
-        clienteNumero: forecastData.clienteNumero,
-        data: forecastData.data,
-        horario: forecastData.horario,
-        valor: forecastData.valor,
-        observacoes: forecastData.observacoes,
-        primeiraCall: forecastData.primeiraCall,
-        updatedAt: new Date().toISOString(),
-      };
-      
-      console.log('💾 [CONTROLE] Atualizando forecast:', forecastAtualizado);
-      
-      // Enviar via WebSocket
-      if (sendForecastUpdate) {
-        sendForecastUpdate(forecastAtualizado);
-      }
-      
-      // Atualizar no banco via API PUT
-      fetch(`/api/forecasts/${encodeURIComponent(forecastSendoEditado.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(forecastAtualizado),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success) {
-            console.log('✅ [CONTROLE] Forecast atualizado no banco:', forecastSendoEditado.id);
-          } else {
-            console.warn('⚠️ [CONTROLE] Erro ao atualizar forecast no banco:', data.message);
-          }
-        })
-        .catch((err) => {
-          console.error('❌ [CONTROLE] Erro ao chamar API de update forecast:', err);
-        });
-      
-      // Atualizar no localStorage
-      if (typeof window !== 'undefined') {
-        try {
-          const stored = localStorage.getItem(STORAGE_KEY_FORECASTS);
-          const forecasts: Forecast[] = stored ? JSON.parse(stored) : [];
-          const index = forecasts.findIndex(f => f.id === forecastSendoEditado.id);
-          if (index >= 0) {
-            forecasts[index] = forecastAtualizado;
-            localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(forecasts));
-            setForecastsDoVendedor(forecasts);
-          }
-        } catch (error) {
-          console.error('❌ [CONTROLE] Erro ao atualizar forecast no localStorage:', error);
-        }
-      }
-      
-      // Fechar o formulário
-      setForecastSendoEditado(null);
-      return;
-    }
-    
-    // Criar novo forecast (pode ser manual, sem negociação)
     const now = new Date();
     const dataCriacao = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const horaCriacao = now.toTimeString().slice(0, 8); // HH:mm:ss
 
-    const forecast: Forecast = {
-      id: `forecast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      vendedorId: currentOwnerId,
-      closerNome: vendedorAtual,
-      clienteNome: forecastData.clienteNome,
-      clienteNumero: forecastData.clienteNumero,
-      data: forecastData.data,
-      horario: forecastData.horario,
-      valor: forecastData.valor,
-      observacoes: forecastData.observacoes,
-      primeiraCall: forecastData.primeiraCall,
-      negociacaoId: negociacaoSelecionadaParaForecast?.id, // Opcional - pode ser undefined para forecast manual
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
+    // Obter todas as negociações selecionadas
+    // Usar negociacoesFiltradas que já contém todas as negociações disponíveis (com ou sem busca)
+    const negociacoesParaClassificar = negociacoesFiltradas.filter(n => negociacoesSelecionadas.has(n.id));
 
-    const payloadParaBanco = {
-      ...forecast,
-      dataCriacao,
-      horaCriacao,
-      closerNome: vendedorAtual, // já incluído no forecast
-    };
+    const novosForecasts: Forecast[] = [];
+    const forecastsAtualizados: Forecast[] = [];
 
-    console.log('💾 [CONTROLE] Criando novo forecast:', forecast);
-
-    // Enviar via WebSocket
-    if (sendForecastUpdate) {
-      sendForecastUpdate(forecast);
-    }
-
-    // Salvar no banco via API POST
-    fetch('/api/forecasts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadParaBanco),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          console.log('✅ [CONTROLE] Forecast salvo no banco:', data.data);
-        } else {
-          console.warn('⚠️ [CONTROLE] Erro ao salvar forecast no banco:', data.message);
-        }
-      })
-      .catch((err) => {
-        console.error('❌ [CONTROLE] Erro ao chamar API de forecasts:', err);
-      });
-
-    // Salvar localmente no localStorage também
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY_FORECASTS);
-        const forecasts: Forecast[] = stored ? JSON.parse(stored) : [];
-        forecasts.push(forecast);
-        localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(forecasts));
-        setForecastsDoVendedor(forecasts);
-      } catch (error) {
-        console.error('❌ [CONTROLE] Erro ao salvar forecast no localStorage:', error);
+    negociacoesParaClassificar.forEach(negociacao => {
+      const forecastExistente = forecastsDoVendedor.find(f => f.negociacaoId === negociacao.id);
+      
+      if (forecastExistente) {
+        // Atualizar forecast existente
+        const forecastAtualizado: Forecast = {
+          ...forecastExistente,
+          classificacao,
+          updatedAt: now.toISOString(),
+        };
+        forecastsAtualizados.push(forecastAtualizado);
+      } else {
+        // Criar novo forecast
+        const forecast: Forecast = {
+          id: `forecast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          vendedorId: currentOwnerId,
+          closerNome: vendedorAtual,
+          clienteNome: negociacao.cliente,
+          clienteNumero: negociacao.numero || '',
+          data: dataCriacao,
+          horario: '',
+          valor: negociacao.valor || 0,
+          observacoes: '',
+          primeiraCall: '',
+          negociacaoId: negociacao.id,
+          classificacao,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        };
+        novosForecasts.push(forecast);
       }
-    }
-    
-    // Fechar o formulário
-    setNegociacaoSelecionadaParaForecast(null);
-    setCriandoForecastManual(false);
-  }, [negociacaoSelecionadaParaForecast, forecastSendoEditado, ownerId, vendedorAtual, sendForecastUpdate, STORAGE_KEY_FORECASTS]);
+    });
 
-  // Handler para selecionar negociação para forecast (com scroll para o topo)
-  const handleSelecionarForecast = useCallback((negociacao: Negociacao) => {
-    setNegociacaoSelecionadaParaForecast(negociacao);
-    setCriandoForecastManual(false);
-    setCriandoCallManual(false);
-    setForecastSendoEditado(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+    // Atualizar forecasts existentes
+    forecastsAtualizados.forEach(forecast => {
+      if (sendForecastUpdate) {
+        sendForecastUpdate(forecast);
+      }
+      
+      fetch(`/api/forecasts/${encodeURIComponent(forecast.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(forecast),
+      }).catch(err => console.error('❌ Erro ao atualizar forecast:', err));
+    });
 
-  // Handler para cancelar forecast
-  const handleCancelForecast = useCallback(() => {
-    setNegociacaoSelecionadaParaForecast(null);
-    setForecastSendoEditado(null);
-    setCriandoForecastManual(false);
-  }, []);
-  
-  // Handler para iniciar criação manual de forecast
-  const handleCriarForecastManual = useCallback(() => {
-    setCriandoForecastManual(true);
-    setNegociacaoSelecionadaParaForecast(null);
-    setForecastSendoEditado(null);
-    setCriandoCallManual(false);
-    // Fazer scroll suave para o topo da página
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+    // Criar novos forecasts
+    novosForecasts.forEach(forecast => {
+      const payloadParaBanco = {
+        ...forecast,
+        dataCriacao,
+        horaCriacao,
+        closerNome: vendedorAtual,
+      };
 
-  // Handler para iniciar criação manual de call
-  const handleCriarCallManual = useCallback(() => {
-    setCriandoCallManual(true);
-    setCriandoForecastManual(false);
-    setNegociacaoSelecionadaParaForecast(null);
-    setForecastSendoEditado(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+      if (sendForecastUpdate) {
+        sendForecastUpdate(forecast);
+      }
 
-  // Handler para salvar call (reunião) manual
-  const handleSaveReuniao = useCallback(async (data: ReuniaoFormData) => {
-    if (!vendedorAtual || !ownerId) return;
-
-    setSavingReuniao(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/reunioes', {
+      fetch('/api/forecasts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vendedorId: ownerId,
-          vendedorNome: vendedorAtual,
-          data: data.data,
-          clienteNome: data.clienteNome.trim(),
-          clienteNumero: data.clienteNumero?.trim() || undefined,
-          valor: data.valor && data.valor > 0 ? data.valor : undefined,
-        }),
-      });
+        body: JSON.stringify(payloadParaBanco),
+      }).catch(err => console.error('❌ Erro ao criar forecast:', err));
+    });
 
-      const result = await response.json();
-
-      if (result.success) {
-        console.log('✅ [CONTROLE] Call registrada com sucesso:', result.data);
-        setCriandoCallManual(false);
-      } else {
-        setError(result.message || 'Erro ao registrar call');
-      }
-    } catch (err) {
-      console.error('❌ [CONTROLE] Erro ao registrar call:', err);
-      setError('Erro ao conectar com o servidor. Tente novamente.');
-    } finally {
-      setSavingReuniao(false);
+    // Atualizar estado local
+    const todosForecasts = [
+      ...forecastsDoVendedor.filter(f => !forecastsAtualizados.some(af => af.id === f.id)),
+      ...forecastsAtualizados,
+      ...novosForecasts,
+    ];
+    
+    setForecastsDoVendedor(todosForecasts);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(todosForecasts));
     }
-  }, [vendedorAtual, ownerId]);
 
-  // Handler para cancelar criação de call
-  const handleCancelReuniao = useCallback(() => {
-    setCriandoCallManual(false);
-  }, []);
-  
-  // Handler para editar forecast (com scroll para o topo)
-  const handleEditForecast = useCallback((forecast: Forecast) => {
-    setForecastSendoEditado(forecast);
-    setNegociacaoSelecionadaParaForecast(null);
-    setCriandoForecastManual(false); // Limpar estado de criação manual
-    // Fazer scroll suave para o topo da página
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+    // Limpar seleções e fechar seletor
+    setNegociacoesSelecionadas(new Set());
+    setMostrarSeletorMassa(false);
+  }, [negociacoesSelecionadas, negociacoesFiltradas, ownerId, vendedorAtual, sendForecastUpdate, STORAGE_KEY_FORECASTS, forecastsDoVendedor]);
+
+  // Efeito para mostrar seletor quando há seleções
+  useEffect(() => {
+    if (negociacoesSelecionadas.size > 0) {
+      setMostrarSeletorMassa(true);
+    } else {
+      setMostrarSeletorMassa(false);
+    }
+  }, [negociacoesSelecionadas]);
+
+  // Sair da seleção de deals ao pressionar Esc
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && negociacoesSelecionadas.size > 0) {
+        handleDesmarcarTodas();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [negociacoesSelecionadas.size, handleDesmarcarTodas]);
   
   // Estado para diálogo de confirmação de delete forecast
   const [deleteForecastId, setDeleteForecastId] = useState<string | null>(null);
+  // Estado para edição inline de forecast (Valor, Primeira Call, Observação)
+  const [editingForecastId, setEditingForecastId] = useState<string | null>(null);
+  const [editingForecastValues, setEditingForecastValues] = useState<{ valor: number; horario: string; primeiraCall: string; observacoes: string } | null>(null);
+  const [savingForecast, setSavingForecast] = useState(false);
   // Estado para diálogo de confirmação de reverter venda
   const [showReverterConfirm, setShowReverterConfirm] = useState(false);
   
@@ -668,6 +659,68 @@ export default function ControleClosersPage() {
   // Handler para abrir confirmação e executar delete de forecast
   const handleDeleteForecast = useCallback((forecastId: string) => {
     setDeleteForecastId(forecastId);
+  }, []);
+
+  // Handler para iniciar edição de forecast
+  const handleStartEditForecast = useCallback((forecast: Forecast) => {
+    setEditingForecastId(forecast.id);
+    const pc = forecast.primeiraCall || '';
+    const primeiraCall = pc ? pc.split('T')[0] : ''; // YYYY-MM-DD para input date
+    setEditingForecastValues({
+      valor: forecast.valor || 0,
+      horario: forecast.horario || '',
+      primeiraCall,
+      observacoes: forecast.observacoes || '',
+    });
+  }, []);
+
+  // Handler para salvar forecast editado
+  const handleSaveForecast = useCallback(async (forecast: Forecast) => {
+    if (!editingForecastValues) return;
+    setSavingForecast(true);
+    try {
+      const updated: Forecast = {
+        ...forecast,
+        valor: editingForecastValues.valor,
+        horario: editingForecastValues.horario,
+        primeiraCall: editingForecastValues.primeiraCall,
+        observacoes: editingForecastValues.observacoes,
+        updatedAt: new Date().toISOString(),
+      };
+      const res = await fetch(`/api/forecasts/${encodeURIComponent(forecast.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await res.json();
+      if (res.ok && (data.success !== false)) {
+        setForecastsDoVendedor((prev) =>
+          prev.map((f) => (f.id === forecast.id ? updated : f))
+        );
+        if (typeof window !== 'undefined') {
+          const stored = localStorage.getItem(STORAGE_KEY_FORECASTS);
+          const forecasts: Forecast[] = stored ? JSON.parse(stored) : [];
+          const idx = forecasts.findIndex((f) => f.id === forecast.id);
+          if (idx >= 0) {
+            forecasts[idx] = updated;
+            localStorage.setItem(STORAGE_KEY_FORECASTS, JSON.stringify(forecasts));
+          }
+        }
+        if (sendForecastUpdate) sendForecastUpdate(updated);
+      }
+    } catch (err) {
+      console.error('❌ Erro ao salvar forecast:', err);
+    } finally {
+      setEditingForecastId(null);
+      setEditingForecastValues(null);
+      setSavingForecast(false);
+    }
+  }, [editingForecastValues, STORAGE_KEY_FORECASTS, sendForecastUpdate]);
+
+  // Handler para cancelar edição
+  const handleCancelEditForecast = useCallback(() => {
+    setEditingForecastId(null);
+    setEditingForecastValues(null);
   }, []);
 
   // Estado para valor acumulado (agora será atualizado manualmente via botão "Vendido")
@@ -1344,9 +1397,11 @@ export default function ControleClosersPage() {
               id: deal.id,
               cliente: deal.name,
               numero: numero,
+              contact_id: deal.contact_ids?.[0] || deal.contacts?.[0]?.id || undefined,
               status: mapRdStatusToInternal(deal.status),
               isNow: deal.id === currentNowId,
-              valor: deal.value || 0,
+              tarefa: deal.custom_fields?.tarefa || '',
+              valor: deal.total_price || 0,
               updated_at: deal.updated_at || deal.created_at || new Date().toISOString(),
             };
           });
@@ -1370,21 +1425,6 @@ export default function ControleClosersPage() {
 
     return () => clearTimeout(timeoutId);
   }, [searchTerm, vendedorAtual, negociacaoNowId]);
-
-  // Filtrar negociações pelo termo de pesquisa
-  const negociacoesFiltradas = useMemo(() => {
-    // Se há busca, usar todas as negociações acumuladas
-    const negociacoesParaFiltrar = searchTerm.trim() ? todasNegociacoes : negociacoesDoVendedor;
-    
-    if (!searchTerm.trim()) {
-      return negociacoesParaFiltrar;
-    }
-    
-    const termoLower = searchTerm.toLowerCase().trim();
-    return negociacoesParaFiltrar.filter((negociacao) =>
-      negociacao.cliente.toLowerCase().includes(termoLower)
-    );
-  }, [negociacoesDoVendedor, todasNegociacoes, searchTerm]);
   
   // Calcular paginação para resultados filtrados
   const negociacoesPaginadas = useMemo(() => {
@@ -1398,7 +1438,7 @@ export default function ControleClosersPage() {
     const fim = inicio + pageSize;
     return negociacoesFiltradas.slice(inicio, fim);
   }, [negociacoesFiltradas, currentPage, pageSize, searchTerm]);
-  
+
   // Calcular se há mais páginas quando há busca
   const hasMorePagesComBusca = useMemo(() => {
     if (!searchTerm.trim()) {
@@ -1644,6 +1684,7 @@ export default function ControleClosersPage() {
   return (
     <>
       <BackgroundLogo />
+      <AlertaReuniaoPopup forecast={alertaEstado.forecast} countdown={alertaEstado.countdown} />
       <div className="relative z-10 min-h-screen flex flex-col w-full min-w-0 max-w-full" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.5rem)' }}>
         {/* Header */}
         <header className="flex-shrink-0 flex items-center justify-end mb-3 md:mb-4" style={{ paddingBottom: 'clamp(0.25rem, 0.5vw, 0.5rem)' }}>
@@ -1710,64 +1751,6 @@ export default function ControleClosersPage() {
             </div>
           )}
 
-          {/* Botões para criar forecast manual e call manual */}
-          {!negociacaoSelecionadaParaForecast && !forecastSendoEditado && !criandoForecastManual && !criandoCallManual && vendedorAtual && vendedores.includes(vendedorAtual) && (
-            <div className="mb-3 md:mb-4">
-              <div className="mb-2 p-3 bg-[#2A2A2A]/50 border border-[#3A3A3A] rounded-lg">
-                <p className="text-[#CCCCCC] text-center" style={{ fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)' }}>
-                  💡 <strong>Dica:</strong> Use o Forecast Manual quando o cliente ainda não possui dados cadastrados no CRM (RD Station). Use o Call Manual para registrar reuniões sem negociação no CRM.
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button
-                  onClick={handleCriarForecastManual}
-                  className="flex-1 bg-[#fed094] hover:bg-[#fed094]/80 text-black"
-                  style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', padding: 'clamp(0.625rem, 1vw, 0.75rem)' }}
-                >
-                  <Calendar className="mr-2 flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
-                  Criar Forecast Manual
-                </Button>
-                <Button
-                  onClick={handleCriarCallManual}
-                  className="flex-1 bg-[#3b82f6] hover:bg-[#3b82f6]/80 text-white"
-                  style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', padding: 'clamp(0.625rem, 1vw, 0.75rem)' }}
-                >
-                  <PhoneCall className="mr-2 flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
-                  Criar Call Manual
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Formulário de Call Manual */}
-          {criandoCallManual && vendedorAtual && vendedores.includes(vendedorAtual) && (
-            <div className="mb-3 md:mb-4">
-              <ReuniaoForm
-                closerNome={vendedorAtual}
-                vendedorId={ownerId || ''}
-                onSave={handleSaveReuniao}
-                onCancel={handleCancelReuniao}
-                isLoading={savingReuniao}
-              />
-            </div>
-          )}
-
-          {/* Formulário de Forecast */}
-          {/* Exibir para todos os vendedores que estão na lista de vendedores válidos */}
-          {(negociacaoSelecionadaParaForecast || forecastSendoEditado || criandoForecastManual) && vendedorAtual && vendedores.includes(vendedorAtual) && (
-            <div className="mb-3 md:mb-4">
-              <ForecastForm
-                negociacao={negociacaoSelecionadaParaForecast}
-                forecast={forecastSendoEditado}
-                closerNome={vendedorAtual}
-                vendedorId={ownerId || ''}
-                onSave={handleSaveForecast}
-                onCancel={handleCancelForecast}
-                isLoading={!wsConnected}
-              />
-            </div>
-          )}
-
           {/* Lista de Forecasts Existentes */}
           {forecastsDoVendedor.length > 0 && vendedorAtual && vendedores.includes(vendedorAtual) && (
             <div className="mb-3 md:mb-4">
@@ -1785,74 +1768,172 @@ export default function ControleClosersPage() {
                         const date = new Date(dateString);
                         return date.toLocaleDateString('pt-BR');
                       };
+                      const isEditing = editingForecastId === forecast.id;
+                      const vals = isEditing && editingForecastValues ? editingForecastValues : null;
                       
                       return (
                         <div
                           key={forecast.id}
-                          className="bg-[#1A1A1A] border border-[#3A3A3A] rounded-lg p-3 md:p-4 hover:border-[#fed094]/50 transition-colors"
+                          className={cn(
+                            "bg-[#1A1A1A] border rounded-lg p-3 md:p-4 transition-colors",
+                            isEditing ? "border-[#fed094]" : "border-[#3A3A3A] hover:border-[#fed094]/50"
+                          )}
                         >
-                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4 min-w-0">
-                            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 min-w-0">
+                          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4 min-w-0">
+                            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-3 min-w-0">
                               <div>
                                 <p className="text-[#CCCCCC] text-xs mb-1">Cliente</p>
-                                <p className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                                <p className="text-white font-medium flex items-center gap-1.5" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
                                   {forecast.clienteNome}
+                                  {forecast.classificacao && (
+                                    <span title={`Classificação: ${forecast.classificacao}`}>
+                                      <EmojiClassificacao classificacao={forecast.classificacao} />
+                                    </span>
+                                  )}
                                 </p>
                               </div>
-                              <div>
-                                <p className="text-[#CCCCCC] text-xs mb-1">Data/Horário</p>
-                                <p className="text-white" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
-                                  {formatDate(forecast.data)} {forecast.horario && `- ${forecast.horario}`}
-                                </p>
-                              </div>
-                              <div>
+                              <div
+                                onClick={() => !isEditing && handleStartEditForecast(forecast)}
+                                className={cn(
+                                  "rounded px-2 py-1 -mx-2 -my-1",
+                                  !isEditing && "cursor-pointer hover:bg-[#2A2A2A]"
+                                )}
+                              >
                                 <p className="text-[#CCCCCC] text-xs mb-1">Valor</p>
-                                <p className="text-white font-semibold" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
-                                  {forecast.valor > 0 ? formatCurrency(forecast.valor) : 'N/A'}
-                                </p>
+                                {isEditing && vals ? (
+                                  <input
+                                    type="number"
+                                    value={vals.valor || ''}
+                                    onChange={(e) => setEditingForecastValues((p) => p ? { ...p, valor: parseFloat(e.target.value) || 0 } : null)}
+                                    className="w-full bg-[#2A2A2A] border border-[#3A3A3A] rounded px-2 py-1 text-white focus:outline-none focus:border-[#fed094]"
+                                    style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}
+                                    min={0}
+                                    step={0.01}
+                                  />
+                                ) : (
+                                  <p className="text-white font-semibold" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                                    {forecast.valor > 0 ? formatCurrency(forecast.valor) : 'N/A'}
+                                  </p>
+                                )}
                               </div>
-                              <div>
+                              <div
+                                onClick={() => !isEditing && handleStartEditForecast(forecast)}
+                                className={cn(
+                                  "rounded px-2 py-1 -mx-2 -my-1",
+                                  !isEditing && "cursor-pointer hover:bg-[#2A2A2A]"
+                                )}
+                              >
+                                <p className="text-[#CCCCCC] text-xs mb-1">Hora</p>
+                                {isEditing && vals ? (
+                                  <input
+                                    type="time"
+                                    value={vals.horario || ''}
+                                    onChange={(e) => setEditingForecastValues((p) => p ? { ...p, horario: e.target.value } : null)}
+                                    className="w-full bg-[#2A2A2A] border border-[#3A3A3A] rounded px-2 py-1 text-white focus:outline-none focus:border-[#fed094]"
+                                    style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}
+                                  />
+                                ) : (
+                                  <p className="text-white" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                                    {forecast.horario || 'N/A'}
+                                  </p>
+                                )}
+                              </div>
+                              <div
+                                onClick={() => !isEditing && handleStartEditForecast(forecast)}
+                                className={cn(
+                                  "rounded px-2 py-1 -mx-2 -my-1",
+                                  !isEditing && "cursor-pointer hover:bg-[#2A2A2A]"
+                                )}
+                              >
                                 <p className="text-[#CCCCCC] text-xs mb-1">Primeira Call</p>
-                                <p className="text-white" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
-                                  {forecast.primeiraCall ? formatDate(forecast.primeiraCall) : 'N/A'}
-                                </p>
+                                {isEditing && vals ? (
+                                  <input
+                                    type="date"
+                                    value={vals.primeiraCall || ''}
+                                    onChange={(e) => setEditingForecastValues((p) => p ? { ...p, primeiraCall: e.target.value } : null)}
+                                    className="w-full bg-[#2A2A2A] border border-[#3A3A3A] rounded px-2 py-1 text-white focus:outline-none focus:border-[#fed094]"
+                                    style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}
+                                  />
+                                ) : (
+                                  <p className="text-white" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                                    {forecast.primeiraCall ? formatDate(forecast.primeiraCall) : 'N/A'}
+                                  </p>
+                                )}
+                              </div>
+                              <div
+                                onClick={() => !isEditing && handleStartEditForecast(forecast)}
+                                className={cn(
+                                  "rounded px-2 py-1 -mx-2 -my-1",
+                                  !isEditing && "cursor-pointer hover:bg-[#2A2A2A]"
+                                )}
+                              >
+                                <p className="text-[#CCCCCC] text-xs mb-1">Observação</p>
+                                {isEditing && vals ? (
+                                  <input
+                                    type="text"
+                                    value={vals.observacoes}
+                                    onChange={(e) => setEditingForecastValues((p) => p ? { ...p, observacoes: e.target.value } : null)}
+                                    placeholder="Observação..."
+                                    className="w-full bg-[#2A2A2A] border border-[#3A3A3A] rounded px-2 py-1 text-white placeholder-[#666] focus:outline-none focus:border-[#fed094]"
+                                    style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}
+                                  />
+                                ) : (
+                                  <p className="text-white min-h-[1.5em]" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                                    {forecast.observacoes || '—'}
+                                  </p>
+                                )}
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-2 flex-shrink-0">
-                              <Button
-                                onClick={() => handleEditForecast(forecast)}
-                                className="bg-blue-600 text-white hover:bg-blue-700"
-                                style={{ 
-                                  fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
-                                  padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
-                                  minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
-                                }}
-                              >
-                                <Edit className="mr-1.5 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
-                                Editar
-                              </Button>
-                              <Button
-                                onClick={() => handleDeleteForecast(forecast.id)}
-                                className="bg-red-600 text-white hover:bg-red-700"
-                                style={{ 
-                                  fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
-                                  padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
-                                  minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
-                                }}
-                              >
-                                <Trash2 className="mr-1.5 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
-                                Remover
-                              </Button>
+                              {isEditing ? (
+                                <>
+                                  <Button
+                                    onClick={() => handleSaveForecast(forecast)}
+                                    disabled={savingForecast}
+                                    className="bg-[#fed094] text-[#1A1A1A] hover:bg-[#fed094]/90"
+                                    style={{ 
+                                      fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
+                                      padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
+                                      minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
+                                    }}
+                                  >
+                                    {savingForecast ? (
+                                      <Loader2 className="animate-spin mr-1.5" style={{ width: 14, height: 14 }} />
+                                    ) : (
+                                      <Save className="mr-1.5 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
+                                    )}
+                                    Salvar
+                                  </Button>
+                                  <Button
+                                    onClick={handleCancelEditForecast}
+                                    disabled={savingForecast}
+                                    variant="outline"
+                                    className="border-[#3A3A3A] text-[#CCCCCC] hover:bg-[#2A2A2A]"
+                                    style={{ 
+                                      fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
+                                      padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
+                                      minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
+                                    }}
+                                  >
+                                    Cancelar
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  onClick={() => handleDeleteForecast(forecast.id)}
+                                  className="bg-red-600 text-white hover:bg-red-700"
+                                  style={{ 
+                                    fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
+                                    padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
+                                    minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
+                                  }}
+                                >
+                                  <Trash2 className="mr-1.5 flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
+                                  Remover
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          {forecast.observacoes && (
-                            <div className="mt-2 pt-2 border-t border-[#3A3A3A]">
-                              <p className="text-[#CCCCCC] text-xs mb-1">Observações</p>
-                              <p className="text-white" style={{ fontSize: 'clamp(0.75rem, 1.3vw, 0.875rem)' }}>
-                                {forecast.observacoes}
-                              </p>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -2067,23 +2148,40 @@ export default function ControleClosersPage() {
                   {negociacoesPaginadas.map((negociacao) => {
                     const isNow = negociacaoNowId === negociacao.id;
                     // Verificar se esta negociação já tem um forecast cadastrado
-                    const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
+                    const forecastDaNegociacao = forecastsDoVendedor.find(f => f.negociacaoId === negociacao.id);
+                    const temForecast = !!forecastDaNegociacao;
+                    const classificacao = forecastDaNegociacao?.classificacao;
 
                     return (
                       <tr
                         key={negociacao.id}
+                        onClick={() => negociacoesSelecionadas.size > 0 && handleToggleSelecao(negociacao.id)}
                         className={cn(
                           "border-b border-[#3A3A3A]/50 hover:bg-[#2A2A2A]/50 transition-colors",
+                          negociacoesSelecionadas.size > 0 && "cursor-pointer",
                           isNow && "bg-transparent border-l-4 border-l-[#fed094]"
                         )}
                       >
                         <td className="py-2 pl-4 pr-3" style={{ width: '220px', minWidth: '220px', maxWidth: '220px' }}>
                           <div className="flex items-center gap-2 min-w-0">
+                            {/* Checkbox para seleção */}
+                            <input
+                              type="checkbox"
+                              checked={negociacoesSelecionadas.has(negociacao.id)}
+                              onChange={() => handleToggleSelecao(negociacao.id)}
+                              className="w-4 h-4 rounded border-[#3A3A3A] bg-[#1A1A1A] text-[#fed094] focus:ring-[#fed094] focus:ring-2 cursor-pointer flex-shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            />
                             {isNow && (
                               <div className="w-2 h-2 rounded-full bg-[#fed094] flex-shrink-0" />
                             )}
-                            <span className="text-white font-medium truncate" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                            <span className="text-white font-medium truncate flex items-center gap-1.5" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
                               {negociacao.cliente}
+                              {classificacao && (
+                                <span title={`Classificação: ${classificacao}`}>
+                                  <EmojiClassificacao classificacao={classificacao} />
+                                </span>
+                              )}
                             </span>
                           </div>
                         </td>
@@ -2099,7 +2197,7 @@ export default function ControleClosersPage() {
                           </div>
                         </td>
                         <td className="py-2 px-4" style={{ width: '280px', minWidth: '280px', maxWidth: '280px' }}>
-                          <div className="flex flex-nowrap justify-center items-center gap-2">
+                          <div className="flex flex-nowrap justify-center items-center gap-2" onClick={(e) => e.stopPropagation()}>
                             <Button
                               onClick={() => handleSetNow(negociacao.id)}
                               className={cn(
@@ -2122,26 +2220,6 @@ export default function ControleClosersPage() {
                                 'Definir como Agora'
                               )}
                             </Button>
-                            <Button
-                              onClick={() => handleSelecionarForecast(negociacao)}
-                              className={cn(
-                                "whitespace-nowrap flex-shrink-0",
-                                negociacaoSelecionadaParaForecast?.id === negociacao.id 
-                                  ? "bg-blue-600 text-white hover:bg-blue-700" 
-                                  : temForecast
-                                    ? "bg-blue-600/80 text-white hover:bg-blue-700 border-2 border-blue-400"
-                                    : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
-                              )}
-                              style={{ 
-                                fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
-                                padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.5rem, 1vw, 0.75rem)',
-                                minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
-                                minWidth: 'clamp(90px, 12vw, 120px)',
-                              }}
-                            >
-                              <Calendar className="mr-1.5 flex-shrink-0 text-white" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
-                              {negociacaoSelecionadaParaForecast?.id === negociacao.id ? 'Editando' : temForecast ? 'Forecast ✓' : 'Forecast'}
-                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -2163,13 +2241,17 @@ export default function ControleClosersPage() {
                   {negociacoesPaginadas.map((negociacao) => {
                     const isNow = negociacaoNowId === negociacao.id;
                 // Verificar se esta negociação já tem um forecast cadastrado
-                const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
+                const forecastDaNegociacao = forecastsDoVendedor.find(f => f.negociacaoId === negociacao.id);
+                const temForecast = !!forecastDaNegociacao;
+                const classificacao = forecastDaNegociacao?.classificacao;
 
                 return (
                   <Card
                     key={negociacao.id}
+                    onClick={() => negociacoesSelecionadas.size > 0 && handleToggleSelecao(negociacao.id)}
                     className={cn(
-                      "hover:border-[#fed094]/50 transition-colors cursor-pointer",
+                      "hover:border-[#fed094]/50 transition-colors",
+                      negociacoesSelecionadas.size > 0 && "cursor-pointer",
                       isNow && "border-2 border-[#fed094] shadow-lg shadow-[#fed094]/30"
                     )}
                     style={isNow ? {
@@ -2181,9 +2263,24 @@ export default function ControleClosersPage() {
                   >
                     <CardHeader style={{ padding: 'clamp(0.625rem, 1vw, 1rem)' }}>
                         <div className="flex items-start justify-between gap-1.5 md:gap-2">
-                        <CardTitle className="text-white line-clamp-2 flex-1" style={{ fontSize: 'clamp(0.8125rem, 2vw, 1.125rem)', lineHeight: '1.3' }}>
-                          {negociacao.cliente}
-                        </CardTitle>
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {/* Checkbox para seleção */}
+                          <input
+                            type="checkbox"
+                            checked={negociacoesSelecionadas.has(negociacao.id)}
+                            onChange={() => handleToggleSelecao(negociacao.id)}
+                            className="w-4 h-4 rounded border-[#3A3A3A] bg-[#1A1A1A] text-[#fed094] focus:ring-[#fed094] focus:ring-2 cursor-pointer flex-shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <CardTitle className="text-white line-clamp-2 flex-1 flex items-center gap-2" style={{ fontSize: 'clamp(0.8125rem, 2vw, 1.125rem)', lineHeight: '1.3' }}>
+                            {negociacao.cliente}
+                            {classificacao && (
+                              <span style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }} title={`Classificação: ${classificacao}`}>
+                                <EmojiClassificacao classificacao={classificacao} />
+                              </span>
+                            )}
+                          </CardTitle>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 1rem)', paddingTop: 0 }}>
@@ -2199,8 +2296,8 @@ export default function ControleClosersPage() {
                           </p>
                         </div>
 
-                        {/* Botões de ação */}
-                        <div className="flex flex-col gap-2">
+                        {/* Botão de ação */}
+                        <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
                           {/* Botão para definir como "now" */}
                           <Button
                             onClick={() => handleSetNow(negociacao.id)}
@@ -2222,27 +2319,6 @@ export default function ControleClosersPage() {
                             ) : (
                               'Definir como Agora'
                             )}
-                          </Button>
-
-                          {/* Botão para adicionar Forecast */}
-                          <Button
-                            onClick={() => handleSelecionarForecast(negociacao)}
-                            className={cn(
-                              "w-full",
-                              negociacaoSelecionadaParaForecast?.id === negociacao.id 
-                                ? "bg-blue-600 text-white hover:bg-blue-700" 
-                                : temForecast
-                                  ? "bg-blue-600/80 text-white hover:bg-blue-700 border-2 border-blue-400"
-                                  : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
-                            )}
-                            style={{ 
-                              fontSize: 'clamp(0.6875rem, 1.5vw, 0.875rem)', 
-                              padding: 'clamp(0.5rem, 1vw, 0.625rem)',
-                              minHeight: 'clamp(2rem, 3vw, 2.5rem)',
-                            }}
-                          >
-                            <Calendar className="mr-1.5 md:mr-2 flex-shrink-0 text-white" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />
-                            {negociacaoSelecionadaParaForecast?.id === negociacao.id ? 'Editando Forecast' : temForecast ? 'Forecast ✓' : 'Adicionar Forecast'}
                           </Button>
                         </div>
                       </div>
@@ -2381,6 +2457,42 @@ export default function ControleClosersPage() {
               </Button>
             </CardFooter>
           </Card>
+        </div>
+      )}
+
+      {/* Janela flutuante de classificação - acompanha scroll e pesquisa */}
+      {mostrarSeletorMassa && negociacoesSelecionadas.size > 0 && vendedorAtual && vendedores.includes(vendedorAtual) && (
+        <div
+          className="fixed bottom-4 right-4 z-50 flex flex-col gap-3 px-4 py-3 rounded-xl shadow-xl border-2 border-[#fed094] bg-[#2A2A2A]/95 backdrop-blur-sm"
+          style={{ maxWidth: 'min(90vw, 380px)' }}
+        >
+          <span className="text-white font-medium whitespace-nowrap text-sm md:text-base text-center">
+            {negociacoesSelecionadas.size} {negociacoesSelecionadas.size === 1 ? 'selecionada' : 'selecionadas'}
+          </span>
+          <div className="flex items-center justify-center gap-2">
+            {[
+              { valor: 'quente' as ClassificacaoForecast, label: 'Quente', cor: 'bg-red-600 hover:bg-red-700', emoji: '🥵' },
+              { valor: 'morno' as ClassificacaoForecast, label: 'Morno', cor: 'bg-yellow-600 hover:bg-yellow-700', emoji: '😐' },
+              { valor: 'frio' as ClassificacaoForecast, label: 'Frio', cor: 'bg-blue-600 hover:bg-blue-700', emoji: '🥶' },
+            ].map((c) => (
+              <Button
+                key={c.valor}
+                onClick={() => handleClassificacaoMassa(c.valor)}
+                className={cn('text-white text-sm font-medium px-3 py-2 shrink-0', c.cor)}
+              >
+                <span className="mr-1">{c.emoji}</span>
+                {c.label}
+              </Button>
+            ))}
+            <Button
+              onClick={handleDesmarcarTodas}
+              variant="ghost"
+              size="sm"
+              className="text-[#CCCCCC] hover:text-white hover:bg-[#3A3A3A] shrink-0"
+            >
+              <X style={{ width: 18, height: 18 }} />
+            </Button>
+          </div>
         </div>
       )}
     </>

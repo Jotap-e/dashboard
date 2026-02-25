@@ -76,6 +76,7 @@ export class DatabaseOperationsService {
         observacoes: forecast.observacoes,
         primeiraCall: forecast.primeiraCall,
         negociacaoId: forecast.negociacaoId,
+        classificacao: forecast.classificacao || 'morno', // Default para 'morno' se não fornecido
         dataCriacao,
         horaCriacao,
         createdAt: forecast.createdAt,

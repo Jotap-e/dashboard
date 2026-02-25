@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, HttpStatus } from '@nestjs/common';
 import { DatabaseOperationsService } from '../database/database-operations.service';
+import { DealsGateway } from '../websocket/deals.gateway';
+import { ForecastsStateService, Forecast } from '../websocket/forecasts-state.service';
 
 export interface CreateForecastDto {
   id: string;
@@ -12,6 +14,7 @@ export interface CreateForecastDto {
   observacoes: string;
   primeiraCall: string;
   negociacaoId?: string;
+  classificacao: 'quente' | 'morno' | 'frio';
   createdAt: string;
   updatedAt: string;
   /** Data de criação do forecast (YYYY-MM-DD) - enviada pelo frontend */
@@ -24,7 +27,11 @@ export interface CreateForecastDto {
 
 @Controller('forecasts')
 export class ForecastsController {
-  constructor(private readonly databaseOperationsService: DatabaseOperationsService) {}
+  constructor(
+    private readonly databaseOperationsService: DatabaseOperationsService,
+    private readonly dealsGateway: DealsGateway,
+    private readonly forecastsStateService: ForecastsStateService,
+  ) {}
 
   @Get('dia')
   async getForecastsDoDia(@Query('data') data?: string) {
@@ -168,6 +175,29 @@ export class ForecastsController {
           HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
+
+      // Atualizar estado em memória e propagar via WebSocket
+      const forecastAtualizado: Forecast = {
+        id: payload.id,
+        vendedorId: payload.vendedorId,
+        closerNome,
+        clienteNome: payload.clienteNome,
+        clienteNumero: payload.clienteNumero,
+        data: payload.data,
+        horario: payload.horario,
+        valor: payload.valor,
+        observacoes: payload.observacoes,
+        primeiraCall: payload.primeiraCall,
+        negociacaoId: payload.negociacaoId,
+        classificacao: payload.classificacao || 'morno',
+        createdAt: payload.createdAt,
+        updatedAt: payload.updatedAt,
+      };
+
+      this.forecastsStateService.setForecast(forecastAtualizado);
+      const updatedForecasts = this.forecastsStateService.getAllForecasts();
+      this.dealsGateway.server.to('painel').emit('forecastsUpdated', updatedForecasts);
+      this.dealsGateway.server.to('controle').emit('forecastsUpdated', updatedForecasts);
 
       return {
         success: true,

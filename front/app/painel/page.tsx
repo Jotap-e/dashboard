@@ -18,6 +18,7 @@ import { User, Loader2, Phone, DollarSign, Check, FileBarChart } from 'lucide-re
 import { cn } from '@/lib/utils';
 import { StatusNegociacao, TipoBloco, Negociacao } from '@/lib/types/negociacoes';
 import { VENDEDOR_IDS, getVendedorTipo } from '@/lib/utils/vendedores';
+import { getHojeLocal } from '@/lib/utils/forecast';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 
 // Mapeamento de owner_id para nome do vendedor
@@ -132,6 +133,9 @@ export default function PainelPage() {
   
   // Map para rastrear forecasts por vendedor (vendedor_id -> Forecast[])
   const [forecastsMap, setForecastsMap] = useState<Map<string, Forecast[]>>(new Map());
+
+  // Alerta de hora próxima por vendedor (vendedor_id -> { forecast, countdown }) - atualizado via WebSocket a cada 1s
+  const [alertaMap, setAlertaMap] = useState<Map<string, { forecast: Forecast; countdown: { minutos: number; segundos: number } }>>(new Map());
   
   // Converter Map para formato de renderização
   const negociacoesPorVendedor = useMemo(() => {
@@ -145,7 +149,7 @@ export default function PainelPage() {
   // Um closer só aparece no painel após sua primeira interação
   // Cada closer é calculado independentemente para evitar re-renders desnecessários
   const vendedoresClosers = useMemo(() => {
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = getHojeLocal();
     const closersNomes = Object.keys(VENDEDOR_IDS).filter((nome) => getVendedorTipo(nome) === 'closer');
 
     // Criar um Map para rastrear quais closers devem aparecer
@@ -176,12 +180,8 @@ export default function PainelPage() {
         negociacao,
       }));
 
-      // Verificar se este closer deve aparecer (tem pelo menos uma ação)
-      const temMeta = meta !== null && (
-        (meta.meta > 0) || 
-        (valorAcumulado > 0) || 
-        (reunioes > 0)
-      );
+      // Verificar se este closer deve aparecer na primeira ação (meta, forecast ou now)
+      const temMeta = meta !== null; // Qualquer meta definida (incluindo 0)
       const temNow = items.length > 0;
       const temForecast = forecastsHoje.length > 0;
       
@@ -238,7 +238,7 @@ export default function PainelPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [finalizarDiaOpen, setFinalizarDiaOpen] = useState(false);
-  
+
   // Ref para rastrear atualizações processadas e evitar loops
   const processedUpdatesRef = useRef<Set<string>>(new Set());
   const dealsNowMapRef = useRef<Map<string, Negociacao>>(new Map());
@@ -267,63 +267,50 @@ export default function PainelPage() {
     });
   }, []);
 
+  // Handler para receber alerta de hora próxima (broadcast a cada 1s pelo backend)
+  const handleAlertaHoraProxima = useCallback((alertas: Array<{ vendedorId: string; forecast: Forecast; countdown: { minutos: number; segundos: number } }>) => {
+    const newMap = new Map<string, { forecast: Forecast; countdown: { minutos: number; segundos: number } }>();
+    alertas.forEach((a) => newMap.set(a.vendedorId, { forecast: a.forecast, countdown: a.countdown }));
+    setAlertaMap(newMap);
+  }, []);
+
   // Handler para receber estado de forecasts do servidor
-  const handleForecastsUpdated = useCallback((state: Array<[string, Forecast[]]>) => {
+  const handleForecastsUpdated = useCallback((state: Array<[string, any[]]>) => {
     console.log('📡 [PAINEL] Estado de forecasts recebido do servidor:', state.length, 'vendedores');
     const newForecastsMap = new Map<string, Forecast[]>();
     state.forEach(([vendedorId, forecasts]) => {
-      newForecastsMap.set(vendedorId, forecasts);
+      // Garantir que todos os forecasts tenham classificacao e estejam no formato correto
+      const forecastsComClassificacao: Forecast[] = forecasts.map((f: any) => ({
+        id: String(f.id || ''),
+        vendedorId: String(f.vendedorId || ''),
+        closerNome: String(f.closerNome || ''),
+        clienteNome: String(f.clienteNome || ''),
+        clienteNumero: String(f.clienteNumero || ''),
+        data: String(f.data || ''),
+        horario: String(f.horario || ''),
+        valor: Number(f.valor) || 0,
+        observacoes: String(f.observacoes || ''),
+        primeiraCall: String(f.primeiraCall || ''),
+        negociacaoId: f.negociacaoId ? String(f.negociacaoId) : undefined,
+        classificacao: (f.classificacao as 'quente' | 'morno' | 'frio') || 'morno',
+        createdAt: String(f.createdAt || ''),
+        updatedAt: String(f.updatedAt || ''),
+      }));
+      newForecastsMap.set(vendedorId, forecastsComClassificacao);
     });
     setForecastsMap(newForecastsMap);
   }, []);
 
   // Carregar dados iniciais via GET apenas no refresh/carregamento da página.
-  // Após isso, todas as atualizações vêm via WebSocket (handleDashboardUpdated, handleMetasUpdated, handleForecastsUpdated).
+  // Forecasts vêm exclusivamente via WebSocket (handleForecastsUpdated) - evita race com API e garante alerta em tempo real.
+  // valor_acumulado e qtd_reunioes vêm apenas via WebSocket (handleMetasUpdated).
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const hoje = new Date().toISOString().split('T')[0];
-
     const loadInitialData = async () => {
       try {
-        // Buscar em paralelo: resumo do dia (apenas forecasts) e deals now
-        // valor_acumulado e qtd_reunioes vêm apenas via WebSocket
-        const [resumoRes, dealsNowRes] = await Promise.all([
-          fetch(`/api/resumo-dia?data=${encodeURIComponent(hoje)}`),
-          fetch('/api/deals/now'),
-        ]);
-
-        // Processar resumo (apenas forecasts - valor_acumulado vem apenas via WebSocket)
-        const resumoJson = await resumoRes.json();
-        if (resumoJson.success && resumoJson.data) {
-          const { forecasts } = resumoJson.data;
-
-          // forecastsMap: agrupar por vendedorId
-          const newForecastsMap = new Map<string, Forecast[]>();
-          (forecasts || []).forEach((f: Record<string, unknown>) => {
-            const vid = String(f.vendedorId || '');
-            const list = newForecastsMap.get(vid) || [];
-            list.push({
-              id: String(f.id || ''),
-              vendedorId: vid,
-              closerNome: String(f.closerNome || ''),
-              clienteNome: String(f.clienteNome || ''),
-              clienteNumero: String(f.clienteNumero || ''),
-              data: String(f.data || ''),
-              horario: String(f.horario || ''),
-              valor: Number(f.valor) || 0,
-              observacoes: String(f.observacoes || ''),
-              primeiraCall: String(f.primeiraCall || ''),
-              negociacaoId: (f.negociacaoId as string) || undefined,
-              createdAt: String(f.createdAt || ''),
-              updatedAt: String(f.updatedAt || ''),
-            });
-            newForecastsMap.set(vid, list);
-          });
-          setForecastsMap(newForecastsMap);
-          console.log('📂 [PAINEL] Forecasts carregados via API:', newForecastsMap.size, 'vendedores');
-          // valor_acumulado e qtd_reunioes vêm apenas via WebSocket (handleMetasUpdated)
-        }
+        // Buscar apenas deals now - forecasts vêm via WebSocket ao conectar
+        const dealsNowRes = await fetch('/api/deals/now');
 
         // Processar deals now
         const dealsJson = await dealsNowRes.json();
@@ -629,6 +616,7 @@ export default function PainelPage() {
     onDashboardUpdated: handleDashboardUpdated,
     onMetasUpdated: handleMetasUpdated,
     onForecastsUpdated: handleForecastsUpdated,
+    onAlertaHoraProxima: handleAlertaHoraProxima,
     onConnected: () => {
       console.log('✅ [PAINEL] WebSocket conectado');
     },
@@ -769,14 +757,16 @@ export default function PainelPage() {
                             marginBottom: hasIncompleteRow ? 'clamp(4rem, 8vw, 8rem)' : '0',
                           }}
                         >
-                          {vendedoresClosers.slice(0, itemsInCompleteRows).map(({ vendedor, items, meta, valorAcumulado, reunioes, forecastsHoje }) => (
+                          {vendedoresClosers.slice(0, itemsInCompleteRows).map(({ vendedor, ownerId, items, meta, valorAcumulado, reunioes, forecastsHoje }) => (
                             <CloserCard
                               key={`closer-${vendedor}`}
                               vendedor={vendedor}
+                              ownerId={ownerId}
                               meta={meta}
                               valorAcumulado={valorAcumulado}
                               reunioes={reunioes}
                               forecastsHoje={forecastsHoje}
+                              alerta={alertaMap.get(ownerId) ?? null}
                               items={items}
                               statusConfig={statusConfig}
                               formatCurrency={formatCurrency}
@@ -796,14 +786,16 @@ export default function PainelPage() {
                             alignItems: 'stretch',
                           }}
                         >
-                          {vendedoresClosers.slice(itemsInCompleteRows).map(({ vendedor, items, meta, valorAcumulado, reunioes, forecastsHoje }) => (
+                          {vendedoresClosers.slice(itemsInCompleteRows).map(({ vendedor, ownerId, items, meta, valorAcumulado, reunioes, forecastsHoje }) => (
                             <div key={`closer-${vendedor}`} style={{ flex: '0 1 calc(33.333% - clamp(4rem, 8vw, 8rem))', maxWidth: 'calc(33.333% - clamp(4rem, 8vw, 8rem))' }}>
                               <CloserCard
                                 vendedor={vendedor}
+                                ownerId={ownerId}
                                 meta={meta}
                                 valorAcumulado={valorAcumulado}
                                 reunioes={reunioes}
                                 forecastsHoje={forecastsHoje}
+                                alerta={alertaMap.get(ownerId) ?? null}
                                 items={items}
                                 statusConfig={statusConfig}
                                 formatCurrency={formatCurrency}

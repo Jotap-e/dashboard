@@ -189,9 +189,6 @@ export function ForecastForm({
     setFormData({ ...formData, clienteNumero: formatted });
   };
 
-  // Permitir criação manual de forecast (sem negociacao ou forecast)
-  // O formulário será exibido mesmo sem negociacao/forecast para permitir criação manual
-
   return (
     <Card className="mb-4 bg-[#2A2A2A]/50 border border-[#3A3A3A]">
       <CardHeader style={{ padding: 'clamp(0.625rem, 1vw, 0.875rem)' }}>
@@ -200,18 +197,10 @@ export function ForecastForm({
             ? `Editar Forecast - ${forecast.clienteNome}` 
             : negociacao 
               ? `Adicionar Forecast - ${negociacao.cliente}` 
-              : 'Criar Forecast Manual'}
+              : 'Criar Forecast'}
         </CardTitle>
       </CardHeader>
       <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 0.875rem)' }}>
-        {/* Dica para forecast manual */}
-        {!negociacao && !forecast && (
-          <div className="mb-3 p-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-            <p className="text-[#CCCCCC] text-center" style={{ fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)' }}>
-              💡 <strong>Forecast Manual:</strong> Use quando o cliente ainda não possui dados cadastrados no CRM (RD Station)
-            </p>
-          </div>
-        )}
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Nome do Cliente */}

@@ -11,12 +11,19 @@ import { MetaDiaria } from '@/lib/types/metas';
 import { Badge } from '@/components/ui/badge';
 import { Phone, DollarSign, Check } from 'lucide-react';
 
+export interface AlertaHoraProxima {
+  forecast: Forecast;
+  countdown: { minutos: number; segundos: number };
+}
+
 interface CloserCardProps {
   vendedor: string;
+  ownerId: string;
   meta: MetaDiaria | null;
   valorAcumulado: number;
   reunioes: number;
   forecastsHoje: Forecast[];
+  alerta: AlertaHoraProxima | null;
   items: Array<{ negociacao: Negociacao }>;
   statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'; color: string }>;
   formatCurrency: (value: number) => string;
@@ -25,10 +32,12 @@ interface CloserCardProps {
 
 const CloserCardComponent = ({
   vendedor,
+  ownerId,
   meta,
   valorAcumulado,
   reunioes,
   forecastsHoje,
+  alerta,
   items,
   statusConfig,
   formatCurrency,
@@ -73,13 +82,14 @@ const CloserCardComponent = ({
         </div>
       )}
 
-      {/* Tabela de Forecast - sempre renderizada para manter altura fixa */}
-      <div className="mb-1 flex-shrink-0" style={{ flexShrink: 0 }}>
-        <ForecastTable forecasts={forecastsHoje} vendedorNome={vendedor} />
-      </div>
+      {/* Tabela de Forecast + Card Now - descem juntos quando o anúncio aparece */}
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="mb-1 flex-shrink-0" style={{ flexShrink: 0 }}>
+          <ForecastTable forecasts={forecastsHoje} vendedorNome={vendedor} alerta={alerta} />
+        </div>
 
-      {/* Negociações "Now" - sempre renderizado para manter espaço reservado */}
-      <div className="flex-shrink-0 overflow-y-auto scrollbar-hide mt-1" style={{ maxHeight: 'clamp(4rem, 5vw, 5rem)', minHeight: 'clamp(4rem, 5vw, 5rem)' }}>
+        {/* Negociações "Now" - sempre renderizado para manter espaço reservado */}
+        <div className="flex-shrink-0 overflow-y-auto scrollbar-hide mt-1" style={{ maxHeight: 'clamp(4rem, 5vw, 5rem)', minHeight: 'clamp(4rem, 5vw, 5rem)' }}>
         {items.length > 0 ? (
           items.map(({ negociacao }, index) => {
             const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
@@ -154,6 +164,7 @@ const CloserCardComponent = ({
             </p>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -182,6 +193,16 @@ const areEqual = (prevProps: CloserCardProps, nextProps: CloserCardProps) => {
   const prevItemIds = prevProps.items.map(i => i.negociacao.id).sort().join(',');
   const nextItemIds = nextProps.items.map(i => i.negociacao.id).sort().join(',');
   if (prevItemIds !== nextItemIds) return false;
+
+  // Comparar alerta (atualizado via WebSocket a cada 1s)
+  const prevAlerta = prevProps.alerta;
+  const nextAlerta = nextProps.alerta;
+  if ((prevAlerta === null) !== (nextAlerta === null)) return false;
+  if (prevAlerta && nextAlerta) {
+    if (prevAlerta.forecast.id !== nextAlerta.forecast.id) return false;
+    if (prevAlerta.countdown.minutos !== nextAlerta.countdown.minutos) return false;
+    if (prevAlerta.countdown.segundos !== nextAlerta.countdown.segundos) return false;
+  }
   
   return true;
 };

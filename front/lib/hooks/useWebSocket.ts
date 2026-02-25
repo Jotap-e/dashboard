@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { Forecast } from '@/lib/types/forecast';
 
 interface DealNowUpdate {
   deal_id: string;
@@ -31,21 +32,7 @@ interface MetaDiaria {
   updated_at: string;
 }
 
-interface Forecast {
-  id: string;
-  vendedorId: string;
-  closerNome: string;
-  clienteNome: string;
-  clienteNumero: string;
-  data: string;
-  horario: string;
-  valor: number;
-  observacoes: string;
-  primeiraCall: string; // Data da primeira call no formato YYYY-MM-DD
-  negociacaoId?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// Usar o tipo Forecast do lib/types/forecast
 
 interface UseWebSocketOptions {
   room: 'painel' | 'controle';
@@ -54,6 +41,7 @@ interface UseWebSocketOptions {
   onControleStateUpdated?: (state: Array<[string, string]>) => void; // Para controle: recebe estado de vendedores (vendedor_id -> deal_id)
   onMetasUpdated?: (state: Array<[string, MetaDiaria]>) => void; // Recebe estado de metas (vendedor_id -> MetaDiaria)
   onForecastsUpdated?: (state: Array<[string, Forecast[]]>) => void; // Recebe estado de forecasts (vendedor_id -> Forecast[])
+  onAlertaHoraProxima?: (alertas: Array<{ vendedorId: string; forecast: Forecast; countdown: { minutos: number; segundos: number } }>) => void; // Alerta de hora próxima (broadcast a cada 1s)
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (error: any) => void;
@@ -66,6 +54,7 @@ export function useWebSocket({
   onControleStateUpdated,
   onMetasUpdated,
   onForecastsUpdated,
+  onAlertaHoraProxima,
   onConnected,
   onDisconnected,
   onError,
@@ -80,6 +69,7 @@ export function useWebSocket({
   const onControleStateUpdatedRef = useRef(onControleStateUpdated);
   const onMetasUpdatedRef = useRef(onMetasUpdated);
   const onForecastsUpdatedRef = useRef(onForecastsUpdated);
+  const onAlertaHoraProximaRef = useRef(onAlertaHoraProxima);
   const onConnectedRef = useRef(onConnected);
   const onDisconnectedRef = useRef(onDisconnected);
   const onErrorRef = useRef(onError);
@@ -91,10 +81,11 @@ export function useWebSocket({
     onControleStateUpdatedRef.current = onControleStateUpdated;
     onMetasUpdatedRef.current = onMetasUpdated;
     onForecastsUpdatedRef.current = onForecastsUpdated;
+    onAlertaHoraProximaRef.current = onAlertaHoraProxima;
     onConnectedRef.current = onConnected;
     onDisconnectedRef.current = onDisconnected;
     onErrorRef.current = onError;
-  }, [onDealUpdate, onDashboardUpdated, onControleStateUpdated, onMetasUpdated, onForecastsUpdated, onConnected, onDisconnected, onError]);
+  }, [onDealUpdate, onDashboardUpdated, onControleStateUpdated, onMetasUpdated, onForecastsUpdated, onAlertaHoraProxima, onConnected, onDisconnected, onError]);
 
   useEffect(() => {
     // Criar conexão WebSocket
@@ -182,6 +173,13 @@ export function useWebSocket({
       onForecastsUpdatedRef.current?.(state);
     });
 
+    // Evento de alerta de hora próxima (apenas painel - broadcast a cada 1s pelo backend)
+    if (room === 'painel') {
+      socket.on('alertaHoraProxima', (alertas: Array<{ vendedorId: string; forecast: Forecast; countdown: { minutos: number; segundos: number } }>) => {
+        onAlertaHoraProximaRef.current?.(alertas);
+      });
+    }
+
     // Limpeza ao desmontar
     return () => {
       console.log(`🔌 [WebSocket] Desconectando (${room})`);
@@ -194,6 +192,7 @@ export function useWebSocket({
       socket.off('controleStateUpdated');
       socket.off('metasUpdated');
       socket.off('forecastsUpdated');
+      socket.off('alertaHoraProxima');
       socket.off('deal-now-update-sent');
       socket.off('meta-update-sent');
       socket.off('forecast-update-sent');

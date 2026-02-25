@@ -12,6 +12,7 @@ export interface Forecast {
   observacoes: string;
   primeiraCall: string; // Data da primeira call no formato YYYY-MM-DD
   negociacaoId?: string;
+  classificacao?: 'quente' | 'morno' | 'frio'; // Classificação do forecast
   createdAt: string;
   updatedAt: string;
 }

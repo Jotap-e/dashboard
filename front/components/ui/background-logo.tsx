@@ -35,7 +35,7 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
         }}
       >
         <div
-          className="w-full h-full opacity-20 md:opacity-25 flex items-center justify-center"
+          className="w-full h-full background-logo-pulse flex items-center justify-center"
           style={{
             filter: 'brightness(1.2) grayscale(100%)',
             display: 'flex',

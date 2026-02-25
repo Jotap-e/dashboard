@@ -7,8 +7,10 @@ import {
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
+import { OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { calcularAlertasPorVendedor } from './forecast-alerta.util';
 import { DealsStateService } from './deals-state.service';
 import { MetasStateService } from './metas-state.service';
 import { ForecastsStateService, Forecast } from './forecasts-state.service';
@@ -35,7 +37,7 @@ interface DealNowUpdate {
   },
   namespace: '/deals',
 })
-export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()
   server: Server;
 
@@ -44,6 +46,7 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly processedUpdates = new Map<string, number>(); // deal_id -> timestamp
   private readonly UPDATE_COOLDOWN = 1000; // 1 segundo de cooldown entre atualizações do mesmo deal
   private agendamentosInterval: NodeJS.Timeout | null = null;
+  private alertaInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly dealsStateService: DealsStateService,
@@ -54,6 +57,20 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     // Iniciar atualização periódica de agendamentos de SDRs (a cada 5 minutos)
     this.iniciarAtualizacaoPeriodicaAgendamentos();
+  }
+
+  onModuleInit() {
+    // Broadcast do estado do alerta a cada segundo para o painel (tempo real)
+    this.alertaInterval = setInterval(() => {
+      try {
+        const allForecasts = this.forecastsStateService.getAllForecasts();
+        const now = new Date(Math.floor(Date.now() / 1000) * 1000);
+        const alertas = calcularAlertasPorVendedor(allForecasts, now);
+        this.server.to('painel').emit('alertaHoraProxima', alertas);
+      } catch (err) {
+        this.logger.warn(`⚠️ Erro ao broadcast alerta: ${(err as Error)?.message}`);
+      }
+    }, 1000);
   }
 
   /**
@@ -98,7 +115,8 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   private async syncForecastsFromDatabase(): Promise<void> {
     try {
-      const hoje = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const hoje = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const forecastsFromDb = await this.databaseOperationsService.getForecastsByDate(hoje);
       if (forecastsFromDb.length > 0) {
         for (const doc of forecastsFromDb) {
@@ -109,11 +127,12 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
             clienteNome: doc.clienteNome,
             clienteNumero: doc.clienteNumero,
             data: doc.data,
-            horario: doc.horario,
+            horario: doc.horario || '',
             valor: doc.valor,
             observacoes: doc.observacoes || '',
             primeiraCall: doc.primeiraCall,
             negociacaoId: doc.negociacaoId,
+            classificacao: doc.classificacao || 'morno',
             createdAt: doc.createdAt,
             updatedAt: doc.updatedAt,
           };
