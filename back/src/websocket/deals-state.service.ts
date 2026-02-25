@@ -6,6 +6,9 @@ interface DealNowData {
   updated_at: string;
   owner_id?: string;
   vendedor?: string;
+  cliente_nome?: string; // Para deals manuais
+  cliente_numero?: string; // Para deals manuais
+  valor?: number; // Para deals manuais
 }
 
 /**

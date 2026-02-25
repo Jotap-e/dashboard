@@ -11,10 +11,11 @@ export class DealsController {
     @Query('size') size?: string,
     @Query('owner_id') ownerId?: string,
     @Query('pipeline_id') pipelineId?: string,
+    @Query('stage_id') stageId?: string,
   ): Promise<DealResponse> {
     try {
       // Log dos parâmetros recebidos
-      console.log('📥 Parâmetros recebidos:', { page, size, ownerId, pipelineId });
+      console.log('📥 Parâmetros recebidos:', { page, size, ownerId, pipelineId, stageId });
       
       // Validar e converter parâmetros de paginação
       let pageNumber = 1;
@@ -58,7 +59,16 @@ export class DealsController {
         }
       }
       
-      console.log('✅ Parâmetros processados:', { pageNumber, pageSize, ownerId: ownerId || 'todos', pipelineId: cleanPipelineId || 'nenhum' });
+      // Validar stage_id se fornecido
+      let cleanStageId: string | undefined = undefined;
+      if (stageId) {
+        cleanStageId = stageId.trim();
+        if (cleanStageId === '') {
+          cleanStageId = undefined;
+        }
+      }
+      
+      console.log('✅ Parâmetros processados:', { pageNumber, pageSize, ownerId: ownerId || 'todos', pipelineId: cleanPipelineId || 'nenhum', stageId: cleanStageId || 'nenhum' });
       
       // Se owner_id for fornecido, buscar deals do vendedor específico
       // Caso contrário, buscar todos os deals
@@ -68,9 +78,12 @@ export class DealsController {
         console.log('✅ Deals retornados:', { total: deals.data?.length || 0 });
         return deals;
       } else {
-        console.log(`👤 Buscando deals do owner_id: ${ownerId}${cleanPipelineId ? ` (pipeline: ${cleanPipelineId})` : ''}`);
-        const deals = await this.dealsService.getDealsByOwner(ownerId, pageNumber, pageSize, cleanPipelineId);
+        console.log(`👤 Buscando deals do owner_id: ${ownerId}${cleanPipelineId ? ` (pipeline: ${cleanPipelineId})` : ''}${cleanStageId ? ` (stage: ${cleanStageId})` : ''}`);
+        // Garantir que quando owner_id é fornecido, o stage_id também seja aplicado se fornecido
+        // Os filtros aplicados serão: owner_id e stage_id (se fornecido)
+        const deals = await this.dealsService.getDealsByOwner(ownerId, pageNumber, pageSize, cleanPipelineId, cleanStageId);
         console.log('✅ Deals retornados:', { total: deals.data?.length || 0 });
+        console.log('🔍 Filtros aplicados:', { owner_id: ownerId, stage_id: cleanStageId || 'não fornecido', pipeline_id: cleanPipelineId || 'não fornecido' });
         return deals;
       }
     } catch (error: any) {
@@ -242,6 +255,62 @@ export class DealsController {
           errors: [
             {
               detail: error?.message || 'Erro interno ao definir deal como "now"',
+            },
+          ],
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Atualiza o status de uma negociação (deal) no RD Station
+   */
+  @Put(':id')
+  async updateDealStatus(
+    @Param('id') dealId: string,
+    @Body() updateData: Partial<Deal>,
+  ): Promise<{ data: Deal; message: string }> {
+    try {
+      console.log('🔄 Atualizando deal:', { dealId, updateData });
+      
+      if (!dealId || typeof dealId !== 'string' || dealId.trim() === '') {
+        throw new HttpException(
+          {
+            errors: [{ detail: 'deal_id é obrigatório e deve ser uma string válida' }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const updatedDeal = await this.dealsService.updateDealStatus(dealId, updateData);
+      
+      console.log('✅ Deal atualizado com sucesso:', { dealId });
+      
+      return {
+        data: updatedDeal,
+        message: 'Deal atualizado com sucesso',
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar deal:', {
+        message: error?.message,
+        statusCode: error?.statusCode,
+        stack: error?.stack,
+        error: error,
+      });
+      
+      if (error?.statusCode) {
+        throw new HttpException(
+          { errors: error.errors || [{ detail: error.message }] },
+          error.statusCode,
+        );
+      }
+      
+      throw new HttpException(
+        {
+          errors: [
+            {
+              detail: error?.message || 'Erro interno ao atualizar deal',
             },
           ],
         },

@@ -118,6 +118,61 @@ export class DealsService {
   }
 
   /**
+   * Faz requisição HTTPS PUT para a API do RD Station
+   */
+  private makeHttpsPutRequest(url: string, accessToken: string, body: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const urlObj = new URL(url);
+      const bodyString = JSON.stringify(body);
+      
+      const options: https.RequestOptions = {
+        hostname: urlObj.hostname,
+        port: 443,
+        path: urlObj.pathname + urlObj.search,
+        method: 'PUT',
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'application/json',
+          'authorization': `Bearer ${accessToken}`,
+          'content-length': Buffer.byteLength(bodyString),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(response);
+            } else {
+              reject({
+                statusCode: res.statusCode,
+                response: response as ErrorResponse,
+              });
+            }
+          } catch (error) {
+            reject(new Error(`Erro ao parsear resposta: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.write(bodyString);
+      req.end();
+    });
+  }
+
+  /**
    * Faz requisição HTTPS GET para a API do RD Station
    */
   private makeHttpsGetRequest(url: string, accessToken: string): Promise<any> {
@@ -225,7 +280,7 @@ export class DealsService {
    * @param pageSize Tamanho da página (padrão: 25)
    * @param pipelineId ID do pipeline (opcional, usado para filtrar deals de SDRs)
    */
-  async getDealsByOwner(ownerId: string, pageNumber: number = 1, pageSize: number = 25, pipelineId?: string): Promise<DealResponse> {
+  async getDealsByOwner(ownerId: string, pageNumber: number = 1, pageSize: number = 25, pipelineId?: string, stageId?: string): Promise<DealResponse> {
     // Validar ownerId
     if (!ownerId || typeof ownerId !== 'string' || ownerId.trim() === '') {
       this.logger.error('❌ ownerId inválido:', ownerId);
@@ -244,7 +299,10 @@ export class DealsService {
       pageSize = 25;
     }
 
-    this.logger.log(`🔍 Buscando negociações para o vendedor: ${ownerId}${pipelineId ? ` (pipeline: ${pipelineId})` : ''} (página ${pageNumber}, tamanho ${pageSize})`);
+    // Para closers: usar CLOSER_PIPELINE_ID e CLOSER_STAGE_ID do .env se não forem fornecidos
+    const effectivePipelineId = pipelineId?.trim() || this.getEnvValue('CLOSER_PIPELINE_ID');
+    const effectiveStageId = stageId?.trim() || this.getEnvValue('CLOSER_STAGE_ID');
+    this.logger.log(`🔍 Buscando negociações para o vendedor: ${ownerId}${effectivePipelineId ? ` (pipeline: ${effectivePipelineId})` : ''}${effectiveStageId ? ` (stage: ${effectiveStageId})` : ''} (página ${pageNumber}, tamanho ${pageSize})`);
 
     const accessToken = this.getEnvValue('RD_ACCESS_TOKEN');
 
@@ -258,17 +316,22 @@ export class DealsService {
     }
 
     // Construir URL com filtro e paginação usando RDQL
-    // Formato: ?filter=owner_id:<id do vendedor>&page[number]=1&page[size]=25
-    // Se pipeline_id for fornecido, combinar filtros com AND (espaço)
+    // Filtro do controle: owner_id (closer), pipeline_id (CLOSER_PIPELINE_ID), stage_id (CLOSER_STAGE_ID)
+    // Excluir negociações vendidas (won) ou perdidas (lost)
     const baseUrl = 'https://api.rd.services/crm/v2/deals';
     const cleanOwnerId = ownerId.trim();
     const params = new URLSearchParams();
     
-    // Construir filtro RDQL combinando owner_id e pipeline_id (se fornecido)
+    // Construir filtro RDQL: owner_id + pipeline_id + stage_id (obrigatórios para closers)
     let filterRDQL = `owner_id:${cleanOwnerId}`;
-    if (pipelineId && pipelineId.trim() !== '') {
-      filterRDQL += ` pipeline_id:${pipelineId.trim()}`;
+    if (effectivePipelineId) {
+      filterRDQL += ` pipeline_id:${effectivePipelineId}`;
     }
+    if (effectiveStageId) {
+      filterRDQL += ` stage_id:${effectiveStageId}`;
+    }
+    // Excluir negociações vendidas (won) ou perdidas (lost)
+    filterRDQL += ` -status:(won,lost)`;
     params.append('filter', filterRDQL);
     
     // Adicionar paginação
@@ -279,6 +342,14 @@ export class DealsService {
 
     try {
       this.logger.log(`📡 Fazendo requisição para: ${url}`);
+      this.logger.log(`🔍 Filtro RDQL aplicado: ${filterRDQL}`);
+      this.logger.log(`📋 Parâmetros da requisição:`, { 
+        ownerId: cleanOwnerId, 
+        pipelineId: effectivePipelineId || 'não fornecido', 
+        stageId: effectiveStageId || 'não fornecido',
+        pageNumber,
+        pageSize 
+      });
       const response = await this.makeHttpsGetRequest(url, accessToken);
       this.logger.log(`✅ ${response.data?.length || 0} negociações encontradas`);
       return response as DealResponse;
@@ -843,6 +914,86 @@ export class DealsService {
       }
       const errorMessage = error.message || 'Erro desconhecido ao buscar agendamentos';
       this.logger.error('❌ Erro ao buscar agendamentos:', {
+        message: errorMessage,
+        stack: error.stack,
+        error,
+      });
+      throw new Error(`Erro ao conectar com a API RD Station: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Atualiza o status de uma negociação (deal) no RD Station
+   * @param dealId ID do deal a ser atualizado
+   * @param updateData Dados para atualizar o deal (status, stage_id, etc)
+   */
+  async updateDealStatus(dealId: string, updateData: Partial<Deal>): Promise<Deal> {
+    this.logger.log(`🔄 Atualizando deal ${dealId} com dados:`, updateData);
+
+    // Validar dealId
+    if (!dealId || typeof dealId !== 'string' || dealId.trim() === '') {
+      this.logger.error('❌ dealId inválido:', dealId);
+      throw {
+        statusCode: 400,
+        message: 'deal_id é obrigatório e deve ser uma string válida',
+        errors: [{ detail: 'deal_id é obrigatório e deve ser uma string válida' }],
+      };
+    }
+
+    const accessToken = this.getEnvValue('RD_ACCESS_TOKEN');
+
+    if (!accessToken) {
+      this.logger.error('❌ RD_ACCESS_TOKEN não encontrado no .env');
+      throw {
+        statusCode: 500,
+        message: 'Token de acesso não configurado',
+        errors: [{ detail: 'Token de acesso não configurado' }],
+      };
+    }
+
+    // Construir URL para atualizar deal
+    const baseUrl = 'https://api.rd.services/crm/v2/deals';
+    const url = `${baseUrl}/${dealId}`;
+
+    // Envolver os dados no formato esperado pelo RD Station: { data: { ... } }
+    const rdStationPayload = {
+      data: updateData,
+    };
+
+    try {
+      this.logger.log(`📡 Fazendo requisição PUT para: ${url}`);
+      this.logger.log(`📦 Payload para RD Station:`, JSON.stringify(rdStationPayload, null, 2));
+      const response = await this.makeHttpsPutRequest(url, accessToken, rdStationPayload);
+      
+      // A resposta pode vir como { data: Deal } ou diretamente como Deal
+      const updatedDeal = response.data || response;
+      
+      if (!updatedDeal || !updatedDeal.id) {
+        throw {
+          statusCode: 404,
+          message: 'Deal não encontrado ou atualização falhou',
+          errors: [{ detail: `Deal com ID ${dealId} não encontrado ou atualização falhou` }],
+        };
+      }
+
+      this.logger.log(`✅ Deal ${dealId} atualizado com sucesso`);
+      return updatedDeal as Deal;
+    } catch (error: any) {
+      if (error.statusCode) {
+        const errorMessage = error.response?.errors?.[0]?.detail || error.message || 'Erro desconhecido da API';
+        this.logger.error(`❌ Erro da API RD Station (${error.statusCode}):`, {
+          statusCode: error.statusCode,
+          message: errorMessage,
+          response: error.response,
+        });
+        throw {
+          statusCode: error.statusCode,
+          message: errorMessage,
+          errors: error.response?.errors || [{ detail: errorMessage }],
+        };
+      }
+      const errorMessage = error.message || 'Erro desconhecido ao atualizar deal';
+      this.logger.error('❌ Erro ao atualizar deal:', {
         message: errorMessage,
         stack: error.stack,
         error,

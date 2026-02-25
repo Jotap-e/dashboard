@@ -7,12 +7,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const ownerId = searchParams.get('owner_id');
     const pipelineId = searchParams.get('pipeline_id');
+    const stageId = searchParams.get('stage_id');
     const page = searchParams.get('page') || '1';
     const size = searchParams.get('size') || '25';
 
     console.log('🔄 [API ROUTE] ============================================');
     console.log('🔄 [API ROUTE] Recebendo requisição /api/deals');
-    console.log('🔄 [API ROUTE] Query params:', { owner_id: ownerId, pipeline_id: pipelineId, page, size });
+    console.log('🔄 [API ROUTE] Query params:', { owner_id: ownerId, pipeline_id: pipelineId, stage_id: stageId, page, size });
     console.log('🔄 [API ROUTE] Request URL:', request.url);
 
     // Construir URL do backend usando função helper
@@ -23,6 +24,9 @@ export async function GET(request: NextRequest) {
     }
     if (pipelineId) {
       backendUrl.searchParams.append('pipeline_id', pipelineId);
+    }
+    if (stageId) {
+      backendUrl.searchParams.append('stage_id', stageId);
     }
     backendUrl.searchParams.append('page', page);
     backendUrl.searchParams.append('size', size);

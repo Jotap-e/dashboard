@@ -1,5 +1,5 @@
-import { Controller, Get, Param, HttpException, HttpStatus } from '@nestjs/common';
-import { ContactsService } from './contacts.service';
+import { Controller, Get, Put, Param, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { ContactsService, Contact } from './contacts.service';
 
 @Controller('contacts')
 export class ContactsController {
@@ -74,6 +74,67 @@ export class ContactsController {
           success: false,
           message: 'Erro ao buscar contato',
           error: errorMessage,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Put(':id')
+  async updateContact(
+    @Param('id') contactId: string,
+    @Body() updateData: Partial<Contact>,
+  ): Promise<{ success: true; data: Contact; message: string }> {
+    try {
+      console.log('🔄 Atualizando contato:', { contactId, updateData });
+      
+      if (!contactId || typeof contactId !== 'string' || contactId.trim() === '') {
+        throw new HttpException(
+          {
+            success: false,
+            message: 'contact_id é obrigatório e deve ser uma string válida',
+            errors: [{ detail: 'contact_id é obrigatório e deve ser uma string válida' }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const updatedContact = await this.contactsService.updateContact(contactId, updateData);
+      
+      console.log('✅ Contato atualizado com sucesso:', { contactId });
+      
+      return {
+        success: true,
+        data: updatedContact,
+        message: 'Contato atualizado com sucesso',
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar contato:', {
+        message: error?.message,
+        statusCode: error?.statusCode,
+        stack: error?.stack,
+        error: error,
+      });
+      
+      if (error?.statusCode) {
+        throw new HttpException(
+          { 
+            success: false,
+            errors: error.errors || [{ detail: error.message }] 
+          },
+          error.statusCode,
+        );
+      }
+      
+      throw new HttpException(
+        {
+          success: false,
+          message: error?.message || 'Erro interno ao atualizar contato',
+          errors: [
+            {
+              detail: error?.message || 'Erro interno ao atualizar contato',
+            },
+          ],
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );

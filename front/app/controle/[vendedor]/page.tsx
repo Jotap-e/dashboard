@@ -6,7 +6,6 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MetaInput } from '@/components/controle/meta-input';
 import { ForecastForm } from '@/components/controle/forecast-form';
@@ -16,16 +15,6 @@ import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar
 import { cn } from '@/lib/utils';
 import { getVendedorId, VENDEDOR_IDS, slugToVendedorName } from '@/lib/utils/vendedores';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
-
-const statusConfig: Record<Negociacao['status'], { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'; color: string }> = {
-  indicacao: { label: 'Indicação', variant: 'default', color: '#3b82f6' },
-  conectado: { label: 'Conectado', variant: 'outline', color: '#f59e0b' },
-  agendado: { label: 'Agendado', variant: 'warning', color: '#f59e0b' },
-  agendado_sdr: { label: 'Agendado SDR', variant: 'warning', color: '#f59e0b' },
-  reuniao: { label: 'Reunião', variant: 'default', color: '#3b82f6' },
-  negociacao: { label: 'Negociação', variant: 'default', color: '#3b82f6' },
-  ganho: { label: 'Ganho', variant: 'success', color: '#22c55e' },
-};
 
 interface MetaDiaria {
   vendedor_id: string;
@@ -385,6 +374,24 @@ export default function ControlePage() {
     setNegociacaoSelecionadaParaForecast(null);
   }, []);
 
+  // Efeito para fazer scroll até o formulário de forecast quando ele for renderizado
+  useEffect(() => {
+    if (negociacaoSelecionadaParaForecast && forecastFormRef.current) {
+      // Aguardar um pouco para garantir que o DOM foi atualizado
+      const timer = setTimeout(() => {
+        if (forecastFormRef.current) {
+          forecastFormRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start',
+            inline: 'nearest'
+          });
+        }
+      }, 150);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [negociacaoSelecionadaParaForecast]);
+
   // Calcular valor acumulado baseado na negociação atual marcada como "now"
   const valorAcumulado = useMemo(() => {
     if (!negociacaoNowId) return 0;
@@ -446,6 +453,7 @@ export default function ControlePage() {
         if (ownerId) {
           params.append('owner_id', ownerId);
         }
+        params.append('stage_id', '67b8c721f02f0700145320c6');
         params.append('page', currentPage.toString());
         params.append('size', pageSize.toString());
         
@@ -613,6 +621,7 @@ export default function ControlePage() {
 
   // Ref para rastrear IDs das negociações carregadas para detectar quando novos dados são carregados
   const prevNegociacoesIdsRef = useRef<string>('');
+  const forecastFormRef = useRef<HTMLDivElement>(null);
   
   // Atualizar negociação "now" quando negociacaoNowId mudar
   // Garantir que o estado do WebSocket seja sempre aplicado aos dados carregados
@@ -902,7 +911,7 @@ export default function ControlePage() {
           {/* Formulário de Forecast */}
           {/* Exibir para todos os vendedores que estão na lista de vendedores válidos */}
           {negociacaoSelecionadaParaForecast && vendedorAtual && vendedores.includes(vendedorAtual) && (
-            <div className="mb-3 md:mb-4">
+            <div ref={forecastFormRef} className="mb-3 md:mb-4">
               <ForecastForm
                 negociacao={negociacaoSelecionadaParaForecast}
                 closerNome={vendedorAtual}
@@ -950,7 +959,6 @@ export default function ControlePage() {
               ) : (
             <>
               {negociacoesFiltradas.map((negociacao) => {
-              const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
               const isNow = negociacaoNowId === negociacao.id;
               // Verificar se esta negociação já tem um forecast cadastrado
               const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
@@ -974,16 +982,6 @@ export default function ControlePage() {
                       <CardTitle className="text-white line-clamp-2 flex-1" style={{ fontSize: 'clamp(0.8125rem, 2vw, 1.125rem)', lineHeight: '1.3' }}>
                         {negociacao.cliente}
                       </CardTitle>
-                      <Badge 
-                        variant={statusInfo.variant} 
-                        className="flex-shrink-0" 
-                        style={{ 
-                          fontSize: 'clamp(0.5625rem, 1vw, 0.75rem)',
-                          padding: 'clamp(0.25rem, 0.5vw, 0.375rem) clamp(0.5rem, 0.8vw, 0.625rem)',
-                        }}
-                      >
-                        {statusInfo.label}
-                      </Badge>
                     </div>
                   </CardHeader>
                   <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 1rem)', paddingTop: 0 }}>
@@ -1034,7 +1032,9 @@ export default function ControlePage() {
 
                         {/* Botão para adicionar Forecast */}
                         <Button
-                          onClick={() => setNegociacaoSelecionadaParaForecast(negociacao)}
+                          onClick={() => {
+                            setNegociacaoSelecionadaParaForecast(negociacao);
+                          }}
                           className={cn(
                             "w-full",
                             negociacaoSelecionadaParaForecast?.id === negociacao.id 

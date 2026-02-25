@@ -162,20 +162,44 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
    */
   async onModuleInit() {
     const envPath = this.getEnvPath();
-    const hasUri = !!(process.env.MONGODB_URI || this.getEnvValue('MONGODB_URI'));
-    this.logger.log(`Conectando ao MongoDB... (env: ${envPath ?? 'não encontrado'}, MONGODB_URI: ${hasUri ? 'ok' : 'faltando'})`);
+    const mongoUri = process.env.MONGODB_URI || this.getEnvValue('MONGODB_URI');
+    const hasUri = !!mongoUri;
+    const dbName = this.getDatabaseName();
+    
+    this.logger.log(`🔌 Conectando ao MongoDB...`);
+    this.logger.log(`   📁 Arquivo .env: ${envPath ?? 'não encontrado'}`);
+    this.logger.log(`   🔑 MONGODB_URI: ${hasUri ? 'configurada' : '❌ FALTANDO'}`);
+    this.logger.log(`   📊 Database: ${dbName}`);
+    
+    if (!hasUri) {
+      this.logger.error('❌ MONGODB_URI não encontrada! Configure no .env ou variáveis de ambiente.');
+      this.logger.error('   Exemplo: MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/?appName=AdvHub');
+      this.client = null;
+      this.db = null;
+      return;
+    }
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      this.logger.log(`🔄 Tentativa ${attempt}/${MAX_RETRIES} de conexão...`);
       const ok = await this.connect();
-      if (ok) return;
+      if (ok) {
+        this.logger.log(`✅ MongoDB conectado com sucesso na tentativa ${attempt}`);
+        return;
+      }
 
       if (attempt < MAX_RETRIES) {
-        this.logger.warn(`Tentativa ${attempt}/${MAX_RETRIES} falhou. Nova tentativa em ${RETRY_DELAY_MS / 1000}s...`);
+        this.logger.warn(`⚠️ Tentativa ${attempt}/${MAX_RETRIES} falhou. Nova tentativa em ${RETRY_DELAY_MS / 1000}s...`);
         await this.sleep(RETRY_DELAY_MS);
       }
     }
 
-    this.logger.warn('⚠️ Backend continuará sem MongoDB (apenas APIs do RD Station)');
+    this.logger.error('❌ Não foi possível conectar ao MongoDB após todas as tentativas.');
+    this.logger.error('⚠️ Backend continuará sem MongoDB (apenas APIs do RD Station)');
+    this.logger.error('💡 Verifique:');
+    this.logger.error('   1. Se MONGODB_URI está correta no .env');
+    this.logger.error('   2. Se o MongoDB Atlas está acessível');
+    this.logger.error('   3. Se o IP está na whitelist do MongoDB Atlas (ou use 0.0.0.0/0 para permitir todos)');
+    this.logger.error('   4. Se as credenciais estão corretas');
     this.client = null;
     this.db = null;
   }
@@ -224,5 +248,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
    */
   isConnected(): boolean {
     return this.client !== null && this.db !== null;
+  }
+
+  /**
+   * Tenta reconectar ao MongoDB manualmente
+   * Útil quando a conexão foi perdida e precisa ser restaurada
+   */
+  async tryReconnect(): Promise<boolean> {
+    if (this.isConnected()) {
+      this.logger.log('✅ MongoDB já está conectado');
+      return true;
+    }
+
+    this.logger.log('🔄 Tentando reconectar ao MongoDB...');
+    const success = await this.connect();
+    if (success) {
+      this.logger.log('✅ Reconexão bem-sucedida');
+    } else {
+      this.logger.error('❌ Falha na reconexão ao MongoDB');
+    }
+    return success;
   }
 }

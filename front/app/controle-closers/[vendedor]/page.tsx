@@ -5,8 +5,7 @@ import { BackgroundLogo } from '@/components/ui/background-logo';
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Select } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MetaInput } from '@/components/controle/meta-input';
 import { ForecastForm } from '@/components/controle/forecast-form';
@@ -15,20 +14,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Negociacao } from '@/lib/types/negociacoes';
 import { ForecastFormData, Forecast } from '@/lib/types/forecast';
 import { ReuniaoFormData } from '@/lib/types/reuniao';
-import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Phone, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw, PhoneCall } from 'lucide-react';
+import { DollarSign, Check, Search, Loader2, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, List, Grid, CheckCircle2, RotateCcw, PhoneCall } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getVendedorId, VENDEDOR_IDS, slugToVendedorName, getVendedorTipo } from '@/lib/utils/vendedores';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
-
-const statusConfig: Record<Negociacao['status'], { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning'; color: string }> = {
-  indicacao: { label: 'Indicação', variant: 'default', color: '#3b82f6' },
-  conectado: { label: 'Conectado', variant: 'outline', color: '#f59e0b' },
-  agendado: { label: 'Agendado', variant: 'warning', color: '#f59e0b' },
-  agendado_sdr: { label: 'Agendado SDR', variant: 'warning', color: '#f59e0b' },
-  reuniao: { label: 'Reunião', variant: 'default', color: '#3b82f6' },
-  negociacao: { label: 'Negociação', variant: 'default', color: '#3b82f6' },
-  ganho: { label: 'Ganho', variant: 'success', color: '#22c55e' },
-};
 
 interface MetaDiaria {
   vendedor_id: string;
@@ -605,6 +594,7 @@ export default function ControleClosersPage() {
           data: data.data,
           clienteNome: data.clienteNome.trim(),
           clienteNumero: data.clienteNumero?.trim() || undefined,
+          valor: data.valor && data.valor > 0 ? data.valor : undefined,
         }),
       });
 
@@ -642,6 +632,11 @@ export default function ControleClosersPage() {
   const [deleteForecastId, setDeleteForecastId] = useState<string | null>(null);
   // Estado para diálogo de confirmação de reverter venda
   const [showReverterConfirm, setShowReverterConfirm] = useState(false);
+  
+  // Estado para edição de número do contato
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [editingPhoneNumber, setEditingPhoneNumber] = useState<string>('');
+  const [updatingPhone, setUpdatingPhone] = useState(false);
 
   // Executar delete de forecast (chamado após confirmação)
   const executeDeleteForecast = useCallback((forecastId: string) => {
@@ -763,6 +758,7 @@ export default function ControleClosersPage() {
           id: deal.id,
           cliente: deal.name,
           numero: numero,
+          contact_id: deal.contact_ids?.[0] || deal.contacts?.[0]?.id || undefined, // ID do primeiro contato associado
           status: mapRdStatusToInternal(deal.status),
           isNow: true,
           tarefa: deal.custom_fields?.tarefa || '',
@@ -781,8 +777,43 @@ export default function ControleClosersPage() {
     fetchNegociacaoNow();
   }, [negociacaoNowId, negociacoesDoVendedor, vendedorAtual]);
   
+  // Função para atualizar o status do deal no RD Station
+  const updateDealStatusInRdStation = useCallback(async (dealId: string, status: 'won' | 'ongoing', stageId: string) => {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
+    const apiUrl = `${backendUrl}/api/deals/${dealId}`;
+    
+    try {
+      const updateData: { status: string; stage_id: string } = {
+        status,
+        stage_id: stageId,
+      };
+      
+      console.log(`🔄 [RD STATION] Atualizando deal ${dealId} para status: ${status}, stage_id: ${stageId}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ errors: [{ detail: 'Erro desconhecido' }] }));
+        throw new Error(errorData.errors?.[0]?.detail || `Erro ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log(`✅ [RD STATION] Deal ${dealId} atualizado com sucesso para status: ${status}`, result);
+      return result;
+    } catch (error) {
+      console.error(`❌ [RD STATION] Erro ao atualizar deal ${dealId}:`, error);
+      throw error;
+    }
+  }, []);
+  
   // Handler para marcar como vendido
-  const handleMarcarComoVendido = useCallback(() => {
+  const handleMarcarComoVendido = useCallback(async () => {
     if (!negociacaoNowId || !metaVendedor || !ownerId || !negociacaoNowCompleta) {
       console.error('❌ [CONTROLE] Não é possível marcar como vendido: dados incompletos');
       return;
@@ -827,6 +858,14 @@ export default function ControleClosersPage() {
       console.log('💾 [CONTROLE] Valor acumulado enviado via WebSocket:', novoValorAcumulado);
     }
     
+    // Atualizar status do deal no RD Station para "won" e stage_id para etapa de ganho
+    try {
+      await updateDealStatusInRdStation(negociacaoNowId, 'won', '680166f73bb8fd001417d33d');
+    } catch (error) {
+      console.error('❌ [CONTROLE] Erro ao atualizar status no RD Station:', error);
+      // Continuar mesmo se houver erro na atualização do RD Station
+    }
+    
     // Salvar venda no banco via API POST (apenas dados do closer; valor do time = somatório após GET)
     fetch('/api/vendas', {
       method: 'POST',
@@ -850,10 +889,10 @@ export default function ControleClosersPage() {
       .catch((err) => {
         console.error('❌ [CONTROLE] Erro ao chamar API de vendas:', err);
       });
-  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, sendMetaUpdate, negociacaoVendida]);
+  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, sendMetaUpdate, negociacaoVendida, updateDealStatusInRdStation]);
 
   // Handler para reverter venda (chamado após confirmação no diálogo)
-  const handleReverterVenda = useCallback(() => {
+  const handleReverterVenda = useCallback(async () => {
     if (!negociacaoNowId || !metaVendedor || !ownerId || !negociacaoVendida || !negociacaoNowCompleta) {
       console.error('❌ [CONTROLE] Não é possível reverter venda: dados incompletos ou não vendida');
       return;
@@ -867,6 +906,14 @@ export default function ControleClosersPage() {
     
     // Reverter valor acumulado
     const novoValorAcumulado = Math.max(0, valorAcumulado - negociacaoAtual.valor);
+    
+    // Atualizar status do deal no RD Station para "ongoing" e stage_id para etapa de negociação
+    try {
+      await updateDealStatusInRdStation(negociacaoNowId, 'ongoing', '67b8c721f02f0700145320c6');
+    } catch (error) {
+      console.error('❌ [CONTROLE] Erro ao atualizar status no RD Station:', error);
+      // Continuar mesmo se houver erro na atualização do RD Station
+    }
     
     // Remover venda do banco via API DELETE
     const params = new URLSearchParams({
@@ -910,7 +957,120 @@ export default function ControleClosersPage() {
       });
       console.log('🔄 [CONTROLE] Valor acumulado revertido enviado via WebSocket:', novoValorAcumulado);
     }
-  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, negociacaoVendida, sendMetaUpdate]);
+  }, [negociacaoNowId, negociacaoNowCompleta, valorAcumulado, metaVendedor, ownerId, vendedorAtual, negociacaoVendida, sendMetaUpdate, updateDealStatusInRdStation]);
+
+  // Função para formatar número para o formato "+55 ddd number"
+  const formatPhoneNumber = useCallback((phone: string): string => {
+    // Remove todos os caracteres não numéricos
+    const cleaned = phone.replace(/\D/g, '');
+    
+    // Se já começa com 55, assume formato internacional
+    if (cleaned.startsWith('55')) {
+      const ddd = cleaned.substring(2, 4);
+      const number = cleaned.substring(4);
+      return `+55 ${ddd} ${number}`;
+    }
+    
+    // Se tem 11 dígitos (DDD + número com 9 dígitos), assume formato nacional
+    if (cleaned.length === 11) {
+      const ddd = cleaned.substring(0, 2);
+      const number = cleaned.substring(2);
+      return `+55 ${ddd} ${number}`;
+    }
+    
+    // Se tem 10 dígitos (DDD + número com 8 dígitos), assume formato nacional
+    if (cleaned.length === 10) {
+      const ddd = cleaned.substring(0, 2);
+      const number = cleaned.substring(2);
+      return `+55 ${ddd} ${number}`;
+    }
+    
+    // Se não se encaixa em nenhum formato, retorna como está com +55
+    return cleaned.length > 0 ? `+55 ${cleaned}` : '';
+  }, []);
+
+  // Handler para abrir edição de número
+  const handleEditPhone = useCallback((contactId: string, currentPhone: string) => {
+    // Remover formatação do número atual para edição
+    const cleanedPhone = currentPhone ? currentPhone.replace(/\D/g, '') : '';
+    setEditingContactId(contactId);
+    setEditingPhoneNumber(cleanedPhone);
+  }, []);
+
+  // Handler para salvar número editado
+  const handleSavePhone = useCallback(async () => {
+    if (!editingContactId || !editingPhoneNumber.trim()) {
+      console.error('❌ [CONTROLE] Dados incompletos para salvar número');
+      return;
+    }
+
+    setUpdatingPhone(true);
+    
+    try {
+      // Formatar número para "+55 ddd number"
+      const formattedPhone = formatPhoneNumber(editingPhoneNumber);
+      
+      console.log(`🔄 [CONTROLE] Atualizando telefone do contato ${editingContactId} para: ${formattedPhone}`);
+      
+      const response = await fetch(`/api/contacts/${editingContactId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phones: [
+            {
+              phone: formattedPhone,
+              type: 'mobile',
+            },
+          ],
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.errors?.[0]?.detail || result.message || 'Erro ao atualizar telefone');
+      }
+
+      console.log('✅ [CONTROLE] Telefone atualizado com sucesso:', result);
+      
+      // Atualizar o número na negociação atual se for a mesma
+      if (negociacaoNowCompleta && negociacaoNowCompleta.contact_id === editingContactId) {
+        setNegociacaoNowCompleta({
+          ...negociacaoNowCompleta,
+          numero: formattedPhone,
+        });
+      }
+      
+      // Atualizar o número nas negociações do vendedor
+      setNegociacoesDoVendedor((prev) =>
+        prev.map((neg) =>
+          neg.contact_id === editingContactId
+            ? { ...neg, numero: formattedPhone }
+            : neg
+        )
+      );
+      
+      // Fechar o dialog
+      setEditingContactId(null);
+      setEditingPhoneNumber('');
+      
+    } catch (error) {
+      console.error('❌ [CONTROLE] Erro ao atualizar telefone:', error);
+      alert(`Erro ao atualizar telefone: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    } finally {
+      setUpdatingPhone(false);
+      setEditingContactId(null);
+      setEditingPhoneNumber('');
+    }
+  }, [editingContactId, editingPhoneNumber, formatPhoneNumber, negociacaoNowCompleta, setNegociacoesDoVendedor]);
+
+  // Handler para cancelar edição
+  const handleCancelEditPhone = useCallback(() => {
+    setEditingContactId(null);
+    setEditingPhoneNumber('');
+  }, []);
 
   // Mapear status do RD Station para status interno
   const mapRdStatusToInternal = (rdStatus: string): Negociacao['status'] => {
@@ -1081,6 +1241,7 @@ export default function ControleClosersPage() {
               id: deal.id,
               cliente: deal.name,
               numero: numero,
+              contact_id: deal.contact_ids?.[0] || deal.contacts?.[0]?.id || undefined, // ID do primeiro contato associado
               status: mapRdStatusToInternal(deal.status),
               // Priorizar o estado do WebSocket sobre o campo da API
               // Quando há paginação, o estado do WebSocket sempre prevalece
@@ -1739,14 +1900,6 @@ export default function ControleClosersPage() {
                           </h3>
                         </div>
                         <div className="flex items-center gap-4 flex-wrap mt-2">
-                          {negociacaoNow.numero && (
-                            <div className="flex items-center gap-1.5">
-                              <Phone className="text-[#CCCCCC]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
-                              <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)' }}>
-                                {negociacaoNow.numero}
-                              </span>
-                            </div>
-                          )}
                           <div className="flex items-center gap-1.5">
                             <DollarSign className="text-[#fed094]" style={{ width: 'clamp(0.875rem, 1.5vw, 1rem)', height: 'clamp(0.875rem, 1.5vw, 1rem)' }} />
                             <span className="text-white font-bold" style={{ fontSize: 'clamp(0.875rem, 1.8vw, 1.125rem)' }}>
@@ -1888,31 +2041,30 @@ export default function ControleClosersPage() {
               </p>
             </div>
           ) : visualizacao === 'lista' ? (
-            // Visualização em Lista (Tabela)
-            <div className="w-full overflow-x-auto scrollbar-hide -mx-1">
-              <table className="w-full border-collapse min-w-[520px]">
-                <thead>
-                  <tr className="border-b border-[#3A3A3A]">
-                    <th className="text-left text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
-                      Cliente
-                    </th>
-                    <th className="text-left text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
-                      Status
-                    </th>
-                    <th className="text-left text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
-                      Número
-                    </th>
-                    <th className="text-left text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
-                      Valor
-                    </th>
-                    <th className="text-center text-[#CCCCCC] py-3 px-3 md:px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
-                      Ações
-                    </th>
-                  </tr>
-                </thead>
+            // Visualização em Lista (Tabela) - colunas Cliente e Ações fixas nas pontas, Valor justificado no meio
+            <div className="w-full overflow-x-auto scrollbar-hide -mx-1 flex justify-center">
+              <div className="inline-block min-w-0 w-full max-w-[936px] mx-auto">
+                <table className="border-collapse w-full" style={{ tableLayout: 'fixed', borderSpacing: '0 0', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '220px' }} />
+                    <col style={{ width: '436px' }} />
+                    <col style={{ width: '280px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b border-[#3A3A3A]">
+                      <th className="text-left text-[#CCCCCC] py-2 pl-4 pr-3" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600, width: '220px', minWidth: '220px', maxWidth: '220px' }}>
+                        Cliente
+                      </th>
+                      <th className="text-center text-[#CCCCCC] py-2 pl-3 pr-12" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600 }}>
+                        Valor
+                      </th>
+                      <th className="text-center text-[#CCCCCC] py-2 px-4" style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)', fontWeight: 600, width: '280px', minWidth: '280px', maxWidth: '280px' }}>
+                        Ações
+                      </th>
+                    </tr>
+                  </thead>
                 <tbody>
                   {negociacoesPaginadas.map((negociacao) => {
-                    const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
                     const isNow = negociacaoNowId === negociacao.id;
                     // Verificar se esta negociação já tem um forecast cadastrado
                     const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
@@ -1925,40 +2077,20 @@ export default function ControleClosersPage() {
                           isNow && "bg-transparent border-l-4 border-l-[#fed094]"
                         )}
                       >
-                        <td className="py-3 px-3 md:px-4">
-                          <div className="flex items-center gap-2">
+                        <td className="py-2 pl-4 pr-3" style={{ width: '220px', minWidth: '220px', maxWidth: '220px' }}>
+                          <div className="flex items-center gap-2 min-w-0">
                             {isNow && (
                               <div className="w-2 h-2 rounded-full bg-[#fed094] flex-shrink-0" />
                             )}
-                            <span className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                            <span className="text-white font-medium truncate" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
                               {negociacao.cliente}
                             </span>
                           </div>
                         </td>
-                        <td className="py-3 px-3 md:px-4">
-                          <Badge 
-                            variant={statusInfo.variant} 
-                            className="inline-flex" 
-                            style={{ 
-                              fontSize: 'clamp(0.6875rem, 1vw, 0.75rem)',
-                              padding: 'clamp(0.25rem, 0.5vw, 0.375rem) clamp(0.5rem, 0.8vw, 0.625rem)',
-                            }}
-                          >
-                            {statusInfo.label}
-                          </Badge>
-                        </td>
-                        <td className="py-3 px-3 md:px-4">
-                          <div className="flex items-center gap-1.5">
-                            <Phone className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.2vw, 1rem)', height: 'clamp(0.875rem, 1.2vw, 1rem)' }} />
-                            <span className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
-                              {negociacao.numero || 'N/A'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 md:px-4">
-                          <div className="flex items-center gap-1.5">
-                            <DollarSign className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.875rem, 1.2vw, 1rem)', height: 'clamp(0.875rem, 1.2vw, 1rem)' }} />
-                            <span className="text-white font-semibold" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
+                        <td className="py-2 pl-3 pr-12 text-center">
+                          <div className="flex items-center justify-center gap-1.5 w-full">
+                            <DollarSign className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
+                            <span className="text-white font-semibold whitespace-nowrap" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>
                               {negociacao.valor && negociacao.valor > 0 
                                 ? formatCurrency(negociacao.valor)
                                 : 'N/A'
@@ -1966,19 +2098,19 @@ export default function ControleClosersPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="py-3 px-3 md:px-4">
-                          <div className="flex flex-wrap justify-center gap-2">
+                        <td className="py-2 px-4" style={{ width: '280px', minWidth: '280px', maxWidth: '280px' }}>
+                          <div className="flex flex-nowrap justify-center items-center gap-2">
                             <Button
                               onClick={() => handleSetNow(negociacao.id)}
                               className={cn(
-                                "whitespace-nowrap",
+                                "whitespace-nowrap flex-shrink-0",
                                 isNow ? "bg-[#fed094]/20 text-[#fed094] hover:bg-[#fed094]/30 border border-[#fed094]" : "bg-[#2A2A2A] text-white hover:bg-[#3A3A3A]"
                               )}
                               style={{ 
                                 fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
-                                padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
+                                padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.5rem, 1vw, 0.75rem)',
                                 minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
-                                minWidth: 'clamp(140px, 18vw, 160px)',
+                                minWidth: 'clamp(110px, 14vw, 140px)',
                               }}
                             >
                               {isNow ? (
@@ -1993,7 +2125,7 @@ export default function ControleClosersPage() {
                             <Button
                               onClick={() => handleSelecionarForecast(negociacao)}
                               className={cn(
-                                "whitespace-nowrap",
+                                "whitespace-nowrap flex-shrink-0",
                                 negociacaoSelecionadaParaForecast?.id === negociacao.id 
                                   ? "bg-blue-600 text-white hover:bg-blue-700" 
                                   : temForecast
@@ -2002,9 +2134,9 @@ export default function ControleClosersPage() {
                               )}
                               style={{ 
                                 fontSize: 'clamp(0.6875rem, 1.2vw, 0.8125rem)', 
-                                padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.75rem, 1.2vw, 1rem)',
+                                padding: 'clamp(0.375rem, 0.8vw, 0.5rem) clamp(0.5rem, 1vw, 0.75rem)',
                                 minHeight: 'clamp(1.75rem, 2.5vw, 2.25rem)',
-                                minWidth: 'clamp(120px, 15vw, 140px)',
+                                minWidth: 'clamp(90px, 12vw, 120px)',
                               }}
                             >
                               <Calendar className="mr-1.5 flex-shrink-0 text-white" style={{ width: 'clamp(0.75rem, 1.2vw, 0.875rem)', height: 'clamp(0.75rem, 1.2vw, 0.875rem)' }} />
@@ -2017,6 +2149,7 @@ export default function ControleClosersPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             // Visualização em Cards
@@ -2027,9 +2160,8 @@ export default function ControleClosersPage() {
                 maxWidth: '100%',
               }}
             >
-              {negociacoesPaginadas.map((negociacao) => {
-                const statusInfo = statusConfig[negociacao.status] || { label: negociacao.status, variant: 'default' as const, color: '#6b7280' };
-                const isNow = negociacaoNowId === negociacao.id;
+                  {negociacoesPaginadas.map((negociacao) => {
+                    const isNow = negociacaoNowId === negociacao.id;
                 // Verificar se esta negociação já tem um forecast cadastrado
                 const temForecast = forecastsDoVendedor.some(f => f.negociacaoId === negociacao.id);
 
@@ -2048,32 +2180,14 @@ export default function ControleClosersPage() {
                     } : {}}
                   >
                     <CardHeader style={{ padding: 'clamp(0.625rem, 1vw, 1rem)' }}>
-                      <div className="flex items-start justify-between gap-1.5 md:gap-2">
+                        <div className="flex items-start justify-between gap-1.5 md:gap-2">
                         <CardTitle className="text-white line-clamp-2 flex-1" style={{ fontSize: 'clamp(0.8125rem, 2vw, 1.125rem)', lineHeight: '1.3' }}>
                           {negociacao.cliente}
                         </CardTitle>
-                        <Badge 
-                          variant={statusInfo.variant} 
-                          className="flex-shrink-0" 
-                          style={{ 
-                            fontSize: 'clamp(0.5625rem, 1vw, 0.75rem)',
-                            padding: 'clamp(0.25rem, 0.5vw, 0.375rem) clamp(0.5rem, 0.8vw, 0.625rem)',
-                          }}
-                        >
-                          {statusInfo.label}
-                        </Badge>
                       </div>
                     </CardHeader>
                     <CardContent style={{ padding: 'clamp(0.625rem, 1vw, 1rem)', paddingTop: 0 }}>
                       <div className="space-y-2 md:space-y-3">
-                        {/* Número do Cliente */}
-                        <div className="flex items-center gap-1.5 md:gap-2">
-                          <Phone className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 1rem)', height: 'clamp(0.75rem, 1.5vw, 1rem)' }} />
-                          <p className="text-[#CCCCCC] break-words" style={{ fontSize: 'clamp(0.8125rem, 1.8vw, 1rem)' }}>
-                            {negociacao.numero || 'Número não informado'}
-                          </p>
-                        </div>
-
                         {/* Valor */}
                         <div className="flex items-center gap-1.5 md:gap-2">
                           <DollarSign className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 1rem)', height: 'clamp(0.75rem, 1.5vw, 1rem)' }} />
@@ -2203,6 +2317,72 @@ export default function ControleClosersPage() {
         icon="revert"
         onConfirm={handleReverterVenda}
       />
+
+      {/* Dialog para editar número do contato */}
+      {editingContactId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-phone-dialog-title"
+        >
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={handleCancelEditPhone}
+            aria-hidden="true"
+          />
+
+          {/* Dialog */}
+          <Card className="relative z-10 w-full max-w-md border-2 border-[#3A3A3A] bg-[#1A1A1A] shadow-2xl">
+            <CardHeader>
+              <CardTitle id="edit-phone-dialog-title" className="text-white text-lg">
+                Editar Número do Contato
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="block text-sm text-[#CCCCCC] mb-2">
+                  Número de Telefone
+                </label>
+                <input
+                  type="tel"
+                  value={editingPhoneNumber}
+                  onChange={(e) => setEditingPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                  placeholder="11999999999"
+                  className="w-full px-3 py-2 bg-[#2A2A2A] border border-[#3A3A3A] rounded-lg text-white placeholder-[#666] focus:outline-none focus:border-[#fed094]"
+                  disabled={updatingPhone}
+                />
+                <p className="text-xs text-[#999] mt-1">
+                  Formato: DDD + Número (ex: 11999999999)
+                </p>
+                {editingPhoneNumber && (
+                  <p className="text-xs text-[#fed094] mt-1">
+                    Será salvo como: {formatPhoneNumber(editingPhoneNumber)}
+                  </p>
+                )}
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={handleCancelEditPhone}
+                disabled={updatingPhone}
+                className="border-[#3A3A3A] text-[#CCCCCC] hover:bg-[#2A2A2A] hover:text-white"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSavePhone}
+                disabled={updatingPhone || !editingPhoneNumber.trim()}
+                className="bg-[#fed094] text-[#1A1A1A] hover:bg-[#fed094]/90"
+              >
+                {updatingPhone ? 'Salvando...' : 'Salvar'}
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      )}
     </>
   );
 }

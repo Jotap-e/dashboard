@@ -11,6 +11,7 @@ interface DealNowUpdate {
   vendedor_nome?: string; // Nome do vendedor responsável pelo controle
   cliente_nome?: string; // Nome do cliente (da deal)
   cliente_numero?: string; // Telefone do cliente
+  valor?: number; // Valor/preço da call (opcional)
 }
 
 interface DealNowData {

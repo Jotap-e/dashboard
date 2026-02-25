@@ -134,6 +134,31 @@ export class DatabaseOperationsService {
   }
 
   /**
+   * Remove todos os forecasts de uma data específica do banco de dados.
+   * Usado ao finalizar o dia para limpar os forecasts do dia atual.
+   * @param dataCriacao - Data de criação no formato YYYY-MM-DD (default: hoje)
+   * @returns número de forecasts removidos
+   */
+  async deleteForecastsByDate(dataCriacao?: string): Promise<number> {
+    const db = this.databaseService.getDatabase();
+    if (!db) {
+      this.logger.warn('⚠️ MongoDB não conectado, forecasts não serão removidos do banco');
+      return 0;
+    }
+
+    try {
+      const data = dataCriacao ?? new Date().toISOString().split('T')[0];
+      const collection = db.collection<ForecastDocument>('forecasts');
+      const result = await collection.deleteMany({ dataCriacao: data });
+      this.logger.log(`✅ ${result.deletedCount} forecasts removidos do banco para a data ${data}`);
+      return result.deletedCount || 0;
+    } catch (error) {
+      this.logger.error(`❌ Erro ao remover forecasts do banco para data ${dataCriacao}`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Salva uma venda no banco de dados (apenas dados do closer).
    * Valor do time = somatório após GET de vendas.
    * @returns true se salvo com sucesso, false se MongoDB não está conectado
@@ -145,6 +170,20 @@ export class DatabaseOperationsService {
     valorNegociacao: number,
     clienteNumero?: string,
   ): Promise<boolean> {
+    // Verificar conexão e tentar reconectar se necessário
+    if (!this.databaseService.isConnected()) {
+      this.logger.warn('⚠️ MongoDB não está conectado. Tentando reconectar...');
+      const reconnected = await this.databaseService.tryReconnect();
+      if (!reconnected) {
+        this.logger.error('❌ MongoDB não conectado após tentativa de reconexão. Verifique:');
+        this.logger.error('   1. Se MONGODB_URI está configurada corretamente no .env');
+        this.logger.error('   2. Se o MongoDB Atlas está acessível');
+        this.logger.error('   3. Se o IP está na whitelist do MongoDB Atlas');
+        this.logger.error('   4. Se as credenciais estão corretas');
+        return false;
+      }
+    }
+    
     const db = this.databaseService.getDatabase();
     if (!db) {
       this.logger.warn('⚠️ MongoDB não conectado, venda não será salva no banco');

@@ -229,10 +229,10 @@ export function ForecastForm({
               />
             </div>
 
-            {/* Número */}
+            {/* Número (opcional) */}
             <div>
               <label className="block text-[#CCCCCC] mb-1.5" style={{ fontSize: 'clamp(0.6875rem, 1.5vw, 0.8125rem)' }}>
-                Número
+                Número <span className="text-[#888888]">(Opcional)</span>
               </label>
               <input
                 type="text"

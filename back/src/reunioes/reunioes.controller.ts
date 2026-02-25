@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, HttpException, HttpStatus, Inject, forwardRef } from '@nestjs/common';
 import { DatabaseOperationsService } from '../database/database-operations.service';
 import { DealsService } from '../deals/deals.service';
 import { ContactsService } from '../contacts/contacts.service';
+import { DealsGateway } from '../websocket/deals.gateway';
 
 export class CreateReuniaoDto {
   vendedorId: string;
@@ -9,6 +10,7 @@ export class CreateReuniaoDto {
   data?: string; // YYYY-MM-DD, default: hoje
   clienteNome: string; // Nome do cliente (form manual) ou deal.name (fluxo now)
   clienteNumero?: string; // Telefone do cliente (preenchido no form)
+  valor?: number; // Valor/preço da call (opcional)
 }
 
 @Controller('reunioes')
@@ -17,6 +19,8 @@ export class ReunioesController {
     private readonly databaseOperationsService: DatabaseOperationsService,
     private readonly dealsService: DealsService,
     private readonly contactsService: ContactsService,
+    @Inject(forwardRef(() => DealsGateway))
+    private readonly dealsGateway: DealsGateway,
   ) {}
 
   /**
@@ -128,9 +132,28 @@ export class ReunioesController {
         );
       }
 
+      // Criar deal "fake" no estado WebSocket e marcar como "now"
+      const dealId = `manual_${reuniao._id || Date.now()}`;
+      const dealNowUpdate = {
+        deal_id: dealId,
+        is_now: true,
+        updated_at: new Date().toISOString(),
+        owner_id: dto.vendedorId,
+        vendedor_nome: vendedorNome,
+        cliente_nome: dto.clienteNome.trim(),
+        cliente_numero: dto.clienteNumero?.trim() || undefined,
+        valor: dto.valor && dto.valor > 0 ? dto.valor : undefined,
+      };
+
+      // Emitir evento WebSocket para atualizar o frontend
+      this.dealsGateway.handleDealNowUpdate(dealNowUpdate);
+
       return {
         success: true,
-        data: reuniao,
+        data: {
+          ...reuniao,
+          dealId, // Retornar o ID da deal fake para o frontend
+        },
       };
     } catch (error: unknown) {
       if (error instanceof HttpException) throw error;

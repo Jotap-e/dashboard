@@ -11,16 +11,15 @@ function AppLayoutContent({ children }: { children: React.ReactNode }) {
     <>
       <Sidebar />
       <main
-        className="transition-all min-w-0"
+        className="transition-all min-w-0 h-screen overflow-y-auto overflow-x-hidden"
         style={{
           marginLeft: sidebarWidth,
           width: `calc(100vw - ${sidebarWidth}px)`,
           maxWidth: '100%',
           transitionDuration: '30ms',
-          overflowX: 'auto',
         }}
       >
-        <div className="w-full min-w-0 max-w-full">
+        <div className="w-full min-w-0 max-w-full min-h-full">
           {children}
         </div>
       </main>

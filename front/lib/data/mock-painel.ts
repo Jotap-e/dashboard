@@ -86,19 +86,19 @@ export const mockPainelDeals: MockPainelDeal[] = [
       vendedor: 'João Vitor Martins Ribeiro',
     },
   },
-  // Pedro
+  // Juliana Costa
   {
-    dealId: 'mock-pedro-1',
-    ownerId: VENDEDOR_IDS['Pedro'],
+    dealId: 'mock-juliana-1',
+    ownerId: VENDEDOR_IDS['Juliana Costa'],
     negociacao: {
-      id: 'mock-pedro-1',
+      id: 'mock-juliana-1',
       cliente: 'Empresa ABC Ltda',
       numero: '(11) 98888-7777',
       status: 'negociacao',
       isNow: true,
       tarefa: 'Enviar proposta comercial até 22/02',
       valor: 15000,
-      vendedor: 'Pedro',
+      vendedor: 'Juliana Costa',
     },
   },
 ];
@@ -136,8 +136,8 @@ export const mockMetasDiarias: MockMetaDiaria[] = [
     updated_at: new Date().toISOString(),
   },
   {
-    vendedor_id: VENDEDOR_IDS['Pedro'],
-    vendedor_nome: 'Pedro',
+    vendedor_id: VENDEDOR_IDS['Juliana Costa'],
+    vendedor_nome: 'Juliana Costa',
     meta: 70000,
     valor_acumulado: 15000,
     updated_at: new Date().toISOString(),

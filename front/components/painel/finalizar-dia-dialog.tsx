@@ -142,7 +142,6 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
     lines.push('RESUMO DO DIA - ' + formatDate(resumo.data));
     lines.push('');
     lines.push('ANÁLISE GERAL DO TIME');
-    lines.push('Data;' + formatDate(resumo.data));
     lines.push('Total Forecasts;' + resumo.forecasts.length);
     lines.push('Total Reuniões;' + resumo.reunioes.length);
     lines.push('Total Vendas;' + resumo.vendas.length);
@@ -150,14 +149,12 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
     lines.push('');
 
     lines.push('FORECASTS DO DIA');
-    lines.push('Closer;Cliente;Número;Data;Horário;Valor;Observações;Primeira Call');
+    lines.push('Closer;Cliente;Horário;Valor;Observações;Primeira Call');
     resumo.forecasts.forEach((f) => {
       lines.push(
         [
           f.closerNome || '',
           f.clienteNome || '',
-          f.clienteNumero || '',
-          formatDate(f.data || ''),
           f.horario || '',
           f.valor ?? '',
           (f.observacoes || '').replace(/;/g, ','),
@@ -181,14 +178,12 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
     lines.push('');
 
     lines.push('VENDAS DO DIA');
-    lines.push('Vendedor;Valor;Negociação ID;Data');
+    lines.push('Vendedor;Valor');
     resumo.vendas.forEach((v) => {
       lines.push(
         [
           v.vendedorNome || '',
           formatCurrency(v.valorNegociacao ?? 0),
-          v.negociacaoId || '',
-          formatDate(v.data || ''),
         ].join(';')
       );
     });
@@ -210,28 +205,27 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
     const rows: string[] = [];
     rows.push('<table border="1">');
     rows.push('<tr><th colspan="2">RESUMO DO DIA - ' + escape(formatDate(resumo.data)) + '</th></tr>');
-    rows.push('<tr><td>Data</td><td>' + escape(formatDate(resumo.data)) + '</td></tr>');
     rows.push('<tr><td>Total Forecasts</td><td>' + resumo.forecasts.length + '</td></tr>');
     rows.push('<tr><td>Total Reuniões</td><td>' + resumo.reunioes.length + '</td></tr>');
     rows.push('<tr><td>Total Vendas</td><td>' + resumo.vendas.length + '</td></tr>');
     rows.push('<tr><td>Faturamento Total</td><td>' + escape(formatCurrency(resumo.faturamentoTotal)) + '</td></tr>');
     rows.push('<tr><td colspan="2"></td></tr>');
-    rows.push('<tr><th colspan="8" style="text-align:center">FORECASTS DO DIA</th></tr>');
-    rows.push('<tr><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:120px">Closer</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Cliente</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Número</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:90px">Data</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:70px">Horário</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Valor</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Observações</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Primeira Call</th></tr>');
+    rows.push('<tr><th colspan="6" style="text-align:center">FORECASTS DO DIA</th></tr>');
+    rows.push('<tr><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:120px">Closer</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Cliente</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:70px">Horário</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Valor</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Observações</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Primeira Call</th></tr>');
     resumo.forecasts.forEach((f) => {
-      rows.push('<tr><td style="padding:6px;word-wrap:break-word;max-width:200px">' + escape(f.closerNome) + '</td><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(f.clienteNome) + '</td><td style="padding:6px;word-wrap:break-word">' + escape(f.clienteNumero) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatDate(f.data || '')) + '</td><td style="padding:6px;white-space:nowrap">' + escape(f.horario) + '</td><td style="padding:6px;white-space:nowrap">' + escape(f.valor != null ? formatCurrency(f.valor) : '') + '</td><td style="padding:6px;word-wrap:break-word;max-width:300px">' + escape(f.observacoes) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatDate(f.primeiraCall || '')) + '</td></tr>');
+      rows.push('<tr><td style="padding:6px;word-wrap:break-word;max-width:200px">' + escape(f.closerNome) + '</td><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(f.clienteNome) + '</td><td style="padding:6px;white-space:nowrap">' + escape(f.horario) + '</td><td style="padding:6px;white-space:nowrap">' + escape(f.valor != null ? formatCurrency(f.valor) : '') + '</td><td style="padding:6px;word-wrap:break-word;max-width:300px">' + escape(f.observacoes) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatDate(f.primeiraCall || '')) + '</td></tr>');
     });
-    rows.push('<tr><td colspan="8"></td></tr>');
+    rows.push('<tr><td colspan="6"></td></tr>');
     rows.push('<tr><th colspan="3" style="text-align:center">REUNIÕES DO DIA</th></tr>');
     rows.push('<tr><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:180px">Closer</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Cliente</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:120px">Telefone</th></tr>');
     resumo.reunioes.forEach((r) => {
       rows.push('<tr><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(r.vendedorNome) + '</td><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(r.clienteNome) + '</td><td style="padding:6px;word-wrap:break-word">' + escape(r.clienteNumero) + '</td></tr>');
     });
     rows.push('<tr><td colspan="3"></td></tr>');
-    rows.push('<tr><th colspan="4" style="text-align:center">VENDAS DO DIA</th></tr>');
-    rows.push('<tr><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Vendedor</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:120px">Valor</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Negociação ID</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:100px">Data</th></tr>');
+    rows.push('<tr><th colspan="2" style="text-align:center">VENDAS DO DIA</th></tr>');
+    rows.push('<tr><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:150px">Vendedor</th><th style="background-color:#4A5568;color:#fff;padding:8px;min-width:120px">Valor</th></tr>');
     resumo.vendas.forEach((v) => {
-      rows.push('<tr><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(v.vendedorNome) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatCurrency(v.valorNegociacao ?? 0)) + '</td><td style="padding:6px;word-wrap:break-word">' + escape(v.negociacaoId) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatDate(v.data || '')) + '</td></tr>');
+      rows.push('<tr><td style="padding:6px;word-wrap:break-word;max-width:250px">' + escape(v.vendedorNome) + '</td><td style="padding:6px;white-space:nowrap">' + escape(formatCurrency(v.valorNegociacao ?? 0)) + '</td></tr>');
     });
     rows.push('</table>');
     const html = '<?xml version="1.0" encoding="UTF-8"?><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"/></head><body>' + rows.join('') + '</body></html>';
@@ -255,7 +249,7 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
       />
       <div className="relative z-10 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col bg-[#1A1A1A] border-2 border-[#3A3A3A] rounded-lg shadow-2xl mx-2 sm:mx-4">
         <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border-b border-[#3A3A3A]">
-          <h2 className="text-white font-semibold order-1" style={{ fontSize: 'clamp(1rem, 2vw, 1.25rem)' }}>
+          <h2 className="text-white font-semibold order-1" style={{ fontSize: 'clamp(0.92rem, 1.84vw, 1.15rem)' }}>
             Finalizar dia
           </h2>
           <div className="flex flex-wrap items-center gap-2 order-2 sm:order-2">
@@ -266,7 +260,7 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                 value={dataSelecionada}
                 onChange={(e) => setDataSelecionada(e.target.value)}
                 className="bg-[#2A2A2A] border border-[#3A3A3A] rounded px-2 py-1 text-white min-w-0"
-                style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)' }}
+                style={{ fontSize: 'clamp(0.69rem, 1.38vw, 0.805rem)' }}
               />
             </div>
             <Button
@@ -275,17 +269,23 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
               onClick={fetchResumo}
               disabled={loading}
               className="border-[#3A3A3A] text-[#CCCCCC] hover:bg-[#2A2A2A]"
-              style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.8125rem)' }}
+              style={{ 
+                fontSize: 'clamp(1.035rem, 1.656vw, 1.12125rem)',
+                padding: 'clamp(0.414rem, 0.828vw, 0.48375rem) clamp(0.828rem, 1.656vw, 0.9675rem)',
+              }}
             >
-              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Atualizar'}
+              {loading ? <Loader2 className="animate-spin" style={{ width: 'clamp(1.2rem, 2.4vw, 1.4rem)', height: 'clamp(1.2rem, 2.4vw, 1.4rem)' }} /> : 'Atualizar'}
             </Button>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => onOpenChange(false)}
               className="text-[#CCCCCC] hover:bg-[#2A2A2A] hover:text-white flex-shrink-0"
+              style={{
+                padding: 'clamp(0.5rem, 1vw, 0.625rem)',
+              }}
             >
-              <X className="h-5 w-5" />
+              <X style={{ width: 'clamp(1.5rem, 3vw, 1.875rem)', height: 'clamp(1.5rem, 3vw, 1.875rem)' }} />
             </Button>
           </div>
         </div>
@@ -308,26 +308,22 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                   <CardTitle className="text-white text-base">Análise geral do time</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                     <div>
-                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>Data</p>
-                      <p className="text-white font-medium truncate" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>{formatDate(resumo.data)}</p>
+                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.575rem, 1.104vw, 0.69rem)' }}>Total Forecasts</p>
+                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.7475rem, 1.38vw, 0.8625rem)' }}>{resumo.forecasts.length}</p>
                     </div>
                     <div>
-                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>Total Forecasts</p>
-                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>{resumo.forecasts.length}</p>
+                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.575rem, 1.104vw, 0.69rem)' }}>Total Reuniões</p>
+                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.7475rem, 1.38vw, 0.8625rem)' }}>{resumo.reunioes.length}</p>
                     </div>
                     <div>
-                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>Total Reuniões</p>
-                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>{resumo.reunioes.length}</p>
+                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.575rem, 1.104vw, 0.69rem)' }}>Total Vendas</p>
+                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.7475rem, 1.38vw, 0.8625rem)' }}>{resumo.vendas.length}</p>
                     </div>
                     <div>
-                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>Total Vendas</p>
-                      <p className="text-white font-medium" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>{resumo.vendas.length}</p>
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.625rem, 1.2vw, 0.75rem)' }}>Faturamento</p>
-                      <p className="text-[#fed094] font-bold truncate" style={{ fontSize: 'clamp(0.8125rem, 1.5vw, 0.9375rem)' }}>{formatCurrency(resumo.faturamentoTotal)}</p>
+                      <p className="text-[#CCCCCC]" style={{ fontSize: 'clamp(0.575rem, 1.104vw, 0.69rem)' }}>Faturamento</p>
+                      <p className="text-[#fed094] font-bold truncate" style={{ fontSize: 'clamp(0.7475rem, 1.38vw, 0.8625rem)' }}>{formatCurrency(resumo.faturamentoTotal)}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -340,37 +336,33 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto max-h-96 overflow-y-auto scrollbar-hide">
-                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', tableLayout: 'auto' }}>
+                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.69rem, 1.38vw, 0.805rem)', tableLayout: 'auto' }}>
                       <thead>
                         <tr className="border-b border-[#3A3A3A]">
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '120px' }}>Closer</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '150px' }}>Cliente</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '100px' }}>Número</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '90px' }}>Data</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '70px' }}>Horário</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '100px' }}>Valor</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '150px' }}>Observações</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '100px' }}>Primeira Call</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '180px' }}>Closer</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '200px' }}>Cliente</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '120px' }}>Horário</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '150px' }}>Valor</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '250px' }}>Observações</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '150px' }}>Primeira Call</th>
                         </tr>
                       </thead>
                       <tbody>
                         {resumo.forecasts.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="text-[#CCCCCC] py-4 text-center">
+                            <td colSpan={6} className="text-[#CCCCCC] py-4 text-center">
                               Nenhum forecast cadastrado
                             </td>
                           </tr>
                         ) : (
                           resumo.forecasts.map((f, i) => (
                             <tr key={i} className="border-b border-[#3A3A3A]/50 hover:bg-[#2A2A2A]/70">
-                              <td className="text-white py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '200px' }}>{f.closerNome || '-'}</td>
-                              <td className="text-white py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '250px' }}>{f.clienteNome || '-'}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 break-words" style={{ wordBreak: 'break-word' }}>{f.clienteNumero || '-'}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 whitespace-nowrap">{formatDate(f.data || '')}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 whitespace-nowrap">{f.horario || '-'}</td>
-                              <td className="text-white py-2 px-3 whitespace-nowrap font-medium">{f.valor != null ? formatCurrency(f.valor) : '-'}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '300px' }}>{f.observacoes || '-'}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 whitespace-nowrap">{formatDate(f.primeiraCall || '')}</td>
+                              <td className="text-white py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '300px' }}>{f.closerNome || '-'}</td>
+                              <td className="text-white py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '350px' }}>{f.clienteNome || '-'}</td>
+                              <td className="text-[#CCCCCC] py-3 px-5 whitespace-nowrap">{f.horario || '-'}</td>
+                              <td className="text-white py-3 px-5 whitespace-nowrap font-medium">{f.valor != null ? formatCurrency(f.valor) : '-'}</td>
+                              <td className="text-[#CCCCCC] py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '400px' }}>{f.observacoes || '-'}</td>
+                              <td className="text-[#CCCCCC] py-3 px-5 whitespace-nowrap">{formatDate(f.primeiraCall || '')}</td>
                             </tr>
                           ))
                         )}
@@ -387,12 +379,12 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto max-h-96 overflow-y-auto scrollbar-hide">
-                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', tableLayout: 'auto' }}>
+                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.69rem, 1.38vw, 0.805rem)', tableLayout: 'auto' }}>
                       <thead>
                         <tr className="border-b border-[#3A3A3A]">
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '180px' }}>Closer</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '150px' }}>Cliente</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '120px' }}>Telefone</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '250px' }}>Closer</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '250px' }}>Cliente</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '180px' }}>Telefone</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -405,9 +397,9 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                         ) : (
                           resumo.reunioes.map((r, i) => (
                             <tr key={i} className="border-b border-[#3A3A3A]/50 hover:bg-[#2A2A2A]/70">
-                              <td className="text-white py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '250px' }}>{r.vendedorNome || '-'}</td>
-                              <td className="text-white py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '250px' }}>{r.clienteNome || '-'}</td>
-                              <td className="text-[#CCCCCC] py-2 px-3 break-words" style={{ wordBreak: 'break-word' }}>{r.clienteNumero || '-'}</td>
+                              <td className="text-white py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '400px' }}>{r.vendedorNome || '-'}</td>
+                              <td className="text-white py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '400px' }}>{r.clienteNome || '-'}</td>
+                              <td className="text-[#CCCCCC] py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '300px' }}>{r.clienteNumero || '-'}</td>
                             </tr>
                           ))
                         )}
@@ -424,29 +416,27 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto max-h-96 overflow-y-auto scrollbar-hide">
-                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 0.875rem)', tableLayout: 'auto' }}>
+                    <table className="w-full border-collapse" style={{ fontSize: 'clamp(0.69rem, 1.38vw, 0.805rem)', tableLayout: 'auto' }}>
                       <thead>
                         <tr className="border-b border-[#3A3A3A]">
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '150px' }}>Vendedor</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '120px' }}>Valor</th>
-                          <th className="text-left text-[#CCCCCC] py-2 px-3 font-semibold" style={{ minWidth: '100px' }}>Data</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '250px' }}>Vendedor</th>
+                          <th className="text-left text-[#CCCCCC] py-3 px-5 font-semibold" style={{ minWidth: '200px' }}>Valor</th>
                         </tr>
                       </thead>
                       <tbody>
                         {resumo.vendas.length === 0 ? (
                           <tr>
-                            <td colSpan={3} className="text-[#CCCCCC] py-4 text-center">
+                            <td colSpan={2} className="text-[#CCCCCC] py-4 text-center">
                               Nenhuma venda registrada
                             </td>
                           </tr>
                         ) : (
                           resumo.vendas.map((v, i) => (
                             <tr key={i} className="border-b border-[#3A3A3A]/50 hover:bg-[#2A2A2A]/70">
-                              <td className="text-white py-2 px-3 break-words" style={{ wordBreak: 'break-word', maxWidth: '250px' }}>{v.vendedorNome || '-'}</td>
-                              <td className="text-[#fed094] font-medium py-2 px-3 whitespace-nowrap">
+                              <td className="text-white py-3 px-5 break-words" style={{ wordBreak: 'break-word', maxWidth: '400px' }}>{v.vendedorNome || '-'}</td>
+                              <td className="text-[#fed094] font-medium py-3 px-5 whitespace-nowrap">
                                 {formatCurrency(v.valorNegociacao ?? 0)}
                               </td>
-                              <td className="text-[#CCCCCC] py-2 px-3 whitespace-nowrap">{formatDate(v.data || '')}</td>
                             </tr>
                           ))
                         )}
@@ -472,7 +462,7 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
               <Button
                 onClick={exportCSV}
                 className="bg-[#2A2A2A] text-white hover:bg-[#3A3A3A] flex items-center gap-2 flex-1 sm:flex-initial"
-                style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)' }}
+                style={{ fontSize: 'clamp(0.69rem, 1.104vw, 0.805rem)' }}
               >
                 <FileDown className="h-4 w-4 flex-shrink-0" />
                 Exportar CSV
@@ -480,7 +470,7 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
               <Button
                 onClick={exportXLS}
                 className="bg-[#fed094] text-[#1A1A1A] hover:bg-[#fed094]/90 flex items-center gap-2 flex-1 sm:flex-initial"
-                style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)' }}
+                style={{ fontSize: 'clamp(0.69rem, 1.104vw, 0.805rem)' }}
               >
                 <FileDown className="h-4 w-4 flex-shrink-0" />
                 Exportar XLS
@@ -490,12 +480,15 @@ export function FinalizarDiaDialog({ open, onOpenChange }: FinalizarDiaDialogPro
               onClick={handleFinalizarDia}
               disabled={finalizando}
               className="bg-[#22c55e] text-white hover:bg-[#22c55e]/90 flex items-center gap-2"
-              style={{ fontSize: 'clamp(0.75rem, 1.2vw, 0.875rem)' }}
+              style={{ 
+                fontSize: 'clamp(1.0764rem, 1.72224vw, 1.2558rem)',
+                padding: 'clamp(0.7176rem, 1.4352vw, 0.8372rem) clamp(1.4352rem, 2.8704vw, 1.6744rem)',
+              }}
             >
               {finalizando ? (
-                <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+                <Loader2 className="flex-shrink-0 animate-spin" style={{ width: 'clamp(1.248rem, 2.496vw, 1.456rem)', height: 'clamp(1.248rem, 2.496vw, 1.456rem)' }} />
               ) : (
-                <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                <CheckCircle className="flex-shrink-0" style={{ width: 'clamp(1.248rem, 2.496vw, 1.456rem)', height: 'clamp(1.248rem, 2.496vw, 1.456rem)' }} />
               )}
               {finalizando ? 'Finalizando...' : 'Finalizar dia'}
             </Button>

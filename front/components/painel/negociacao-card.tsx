@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Negociacao } from '@/lib/types/negociacoes';
 import { cn } from '@/lib/utils';
-import { DollarSign, Phone } from 'lucide-react';
+import { DollarSign } from 'lucide-react';
 
 interface NegociacaoCardProps {
   negociacao: Negociacao;
@@ -65,16 +65,6 @@ export function NegociacaoCard({ negociacao }: NegociacaoCardProps) {
       </CardHeader>
       <CardContent className="flex-1 flex flex-col justify-start relative" style={{ padding: 'clamp(0.75rem, 1.2vw, 1rem)', paddingTop: 0 }}>
         <div className="space-y-2">
-          {/* Número do Cliente */}
-          {negociacao.numero && (
-            <div className="flex items-center gap-1.5 md:gap-2">
-              <Phone className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />
-              <p className="text-[#CCCCCC] truncate" style={{ fontSize: 'clamp(0.75rem, 1.8vw, 0.9375rem)' }}>
-                {negociacao.numero}
-              </p>
-            </div>
-          )}
-
           {/* Valor */}
           <div className="flex items-center gap-1.5 md:gap-2">
             <DollarSign className="text-[#CCCCCC] flex-shrink-0" style={{ width: 'clamp(0.75rem, 1.5vw, 0.875rem)', height: 'clamp(0.75rem, 1.5vw, 0.875rem)' }} />

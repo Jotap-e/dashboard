@@ -12,8 +12,8 @@ async function bootstrap() {
   // Habilitar CORS para comunicação com o frontend
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   
-  // Configurar CORS para aceitar múltiplas origens
-  const allowedOrigins = [
+  // Configurar CORS para aceitar múltiplas origens (strings ou RegExp)
+  const allowedOrigins: (string | RegExp)[] = [
     frontendUrl,
     'http://localhost:3000',
     'http://localhost:3001',

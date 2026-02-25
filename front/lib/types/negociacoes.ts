@@ -7,6 +7,7 @@ export interface Negociacao {
   id: string;
   cliente: string;
   numero?: string; // Número de telefone do cliente
+  contact_id?: string; // ID do contato no RD Station
   status: StatusNegociacao;
   tarefa: string;
   vendedor: string;

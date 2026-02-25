@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Phone, Check } from 'lucide-react';
+import { Phone, Check, DollarSign } from 'lucide-react';
 import { ReuniaoFormData } from '@/lib/types/reuniao';
 
 function formatPhoneNumber(value: string): string {
@@ -28,11 +28,81 @@ export function ReuniaoForm({
   onCancel,
   isLoading = false,
 }: ReuniaoFormProps) {
+  const valorInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<ReuniaoFormData>({
     clienteNome: '',
     clienteNumero: '',
     data: new Date().toISOString().split('T')[0],
+    valor: 0,
   });
+  
+  // Estado para controlar o valor formatado no input
+  const [valorDisplay, setValorDisplay] = useState<string>('');
+
+  // Função para formatar o valor para exibição no input
+  const formatValueForInput = (value: number): string => {
+    if (value === 0 || isNaN(value)) return '';
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  const handleValorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputValue = e.target.value;
+    
+    // Se o campo estiver vazio, limpar o valor
+    if (!inputValue.trim()) {
+      setFormData({ ...formData, valor: 0 });
+      setValorDisplay('');
+      return;
+    }
+    
+    // Remover formatação existente (R$, pontos, vírgulas, espaços)
+    const cleanedValue = inputValue
+      .replace(/R\$\s*/g, '')
+      .replace(/\./g, '')
+      .replace(/,/g, '')
+      .replace(/\s/g, '');
+    
+    // Remover tudo exceto dígitos
+    const digitsOnly = cleanedValue.replace(/\D/g, '');
+    
+    if (!digitsOnly) {
+      setFormData({ ...formData, valor: 0 });
+      setValorDisplay('');
+      return;
+    }
+    
+    // Converter para número (dividir por 100 para considerar centavos)
+    const numericValue = parseFloat(digitsOnly) / 100;
+    
+    // Atualizar o valor numérico no estado
+    setFormData({ ...formData, valor: numericValue });
+    
+    // Durante a digitação, mostrar apenas os dígitos (sem formatação)
+    // A formatação será aplicada no onBlur
+    setValorDisplay(digitsOnly);
+  };
+
+  const handleValorBlur = () => {
+    // Quando o campo perde o foco, formatar o valor
+    if (formData.valor > 0) {
+      setValorDisplay(formatValueForInput(formData.valor));
+    } else {
+      setValorDisplay('');
+    }
+  };
+
+  const handleValorFocus = () => {
+    // Quando o campo ganha foco, mostrar apenas os dígitos para facilitar edição
+    if (formData.valor > 0) {
+      const digitsOnly = formData.valor.toString().replace(/\D/g, '').replace('.', '');
+      setValorDisplay(digitsOnly);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

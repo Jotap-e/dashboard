@@ -3,7 +3,7 @@
  */
 export const VENDEDOR_IDS: Record<string, string> = {
   'João Vitor Martins Ribeiro': '6936c37038809600166ca22a',
-  'Pedro': '6924898ebc81ed0013af4f98',
+  'Juliana Costa': '699741ae6f4b3c0013e9fe26',
   'Thalia Batista': '69824580b58d7a00132a276c',
   'Vinicius Oliveira': '69330c5c687733001309154c',
   'Yuri Rafael dos Santos': '6978eabe122529001e60f427',
@@ -21,7 +21,7 @@ export type TipoVendedor = 'closer' | 'sdr';
  */
 export const VENDEDOR_TIPOS: Record<string, TipoVendedor> = {
   'João Vitor Martins Ribeiro': 'closer',
-  'Pedro': 'closer',
+  'Juliana Costa': 'closer',
   'Thalia Batista': 'closer',
   'Vinicius Oliveira': 'closer',
   'Yuri Rafael dos Santos': 'closer',
@@ -58,7 +58,8 @@ export const SLUG_TO_VENDEDOR: Record<string, string> = {
   'joao-vitor-martins-ribeiro': 'João Vitor Martins Ribeiro',
   'joao-vitor': 'João Vitor Martins Ribeiro',
   // Outros vendedores
-  'pedro': 'Pedro',
+  'juliana-costa': 'Juliana Costa',
+  'juliana': 'Juliana Costa',
   'thalia-batista': 'Thalia Batista',
   'vinicius-oliveira': 'Vinicius Oliveira',
   'yuri-rafael-dos-santos': 'Yuri Rafael dos Santos',

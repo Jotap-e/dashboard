@@ -7,8 +7,8 @@ const addVendedorToNegociacoes = (vendedor: string, negociacoes: Omit<Negociacao
 
 export const mockNegociacoes: NegociacoesPorVendedor[] = [
   {
-    vendedor: 'Pedro',
-    negociacoes: addVendedorToNegociacoes('Pedro', [
+    vendedor: 'Juliana Costa',
+    negociacoes: addVendedorToNegociacoes('Juliana Costa', [
       {
         id: '1',
         cliente: 'Empresa ABC Ltda',

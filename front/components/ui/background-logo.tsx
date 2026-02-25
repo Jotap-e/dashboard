@@ -13,9 +13,14 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
         'fixed inset-0 flex items-center justify-center bg-[#1A1A1A] overflow-hidden',
         className
       )}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
       <div
-        className="relative flex items-center justify-center"
+        className="relative flex items-center justify-start"
         style={{
           // Responsivo: ajusta tamanho baseado na viewport (reduzido em 25% total: 15% + 10%)
           // Em telas pequenas: mínimo 76.5vw (85vw * 0.9)
@@ -23,12 +28,19 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
           // Em telas grandes: máximo 53.5vw (59.5vw * 0.9, arredondado) ou 1070px (1190px * 0.9, arredondado)
           width: 'clamp(76.5vw, 65vw, min(53.5vw, 1070px))',
           height: 'clamp(76.5vw, 65vw, min(53.5vw, 1070px))',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          marginLeft: 'clamp(-3.8vw, -1.3vw, -1vw)',
         }}
       >
         <div
-          className="w-full h-full opacity-20 md:opacity-25"
+          className="w-full h-full opacity-20 md:opacity-25 flex items-center justify-center"
           style={{
             filter: 'brightness(1.2) grayscale(100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           <svg
@@ -36,6 +48,10 @@ export function BackgroundLogo({ className }: BackgroundLogoProps) {
             viewBox="514.934 145.174 225.922 223.243"
             className="w-full h-full"
             preserveAspectRatio="xMidYMid meet"
+            style={{
+              display: 'block',
+              margin: 'auto',
+            }}
           >
             <defs>
               <linearGradient id="bg-gradient-1" x1="0" y1="66.5" x2="147.94" y2="66.5" gradientUnits="userSpaceOnUse">

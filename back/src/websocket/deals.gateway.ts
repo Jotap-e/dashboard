@@ -25,6 +25,7 @@ interface DealNowUpdate {
   vendedor_nome?: string; // Nome do vendedor responsável pelo controle
   cliente_nome?: string; // Nome do cliente (da deal)
   cliente_numero?: string; // Telefone do cliente
+  valor?: number; // Valor/preço da call (opcional)
 }
 
 @WebSocketGateway({
@@ -294,7 +295,121 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Recebe atualização de flag "now" da página de controle
+   * Método público para processar atualização de deal "now"
+   * Pode ser chamado tanto pelo WebSocket quanto por outros serviços (ex: ReunioesController)
+   */
+  async handleDealNowUpdate(data: DealNowUpdate) {
+    this.logger.log(`📡 Processando atualização de deal:`, {
+      deal_id: data.deal_id,
+      is_now: data.is_now,
+      updated_at: data.updated_at,
+    });
+
+    // Validar dados
+    if (!data.deal_id || typeof data.is_now !== 'boolean' || !data.updated_at) {
+      this.logger.warn(`⚠️ Dados inválidos recebidos`);
+      return;
+    }
+
+    // Verificar cooldown para evitar spam de atualizações do mesmo deal
+    const now = Date.now();
+    const lastUpdate = this.processedUpdates.get(data.deal_id);
+    if (lastUpdate && (now - lastUpdate) < this.UPDATE_COOLDOWN) {
+      this.logger.warn(`⚠️ Atualização ignorada (cooldown): deal ${data.deal_id} atualizado há ${now - lastUpdate}ms`);
+      return;
+    }
+
+    // Registrar timestamp da atualização
+    this.processedUpdates.set(data.deal_id, now);
+
+    // Limpar atualizações antigas (mais de 5 minutos)
+    if (this.processedUpdates.size > 1000) {
+      const fiveMinutesAgo = now - 5 * 60 * 1000;
+      for (const [dealId, timestamp] of this.processedUpdates.entries()) {
+        if (timestamp < fiveMinutesAgo) {
+          this.processedUpdates.delete(dealId);
+        }
+      }
+    }
+
+    // Atualizar estado em memória
+    if (data.is_now) {
+      // Nome do vendedor responsável pelo controle: enviado no payload ou obtido pelo owner_id
+      const vendedorNome = data.vendedor_nome?.trim() || (data.owner_id ? this.getVendedorNomeById(data.owner_id) : 'Vendedor');
+      
+      this.dealsStateService.setDealNow(data.deal_id, {
+        deal_id: data.deal_id,
+        is_now: data.is_now,
+        updated_at: data.updated_at,
+        owner_id: data.owner_id,
+        vendedor: vendedorNome,
+        cliente_nome: data.cliente_nome,
+        cliente_numero: data.cliente_numero,
+        valor: data.valor,
+      });
+      
+      // Atualizar reuniões em todo "now" definido
+      if (data.owner_id) {
+        // Garantir que o vendedor tenha meta (criar se não existir)
+        if (!this.metasStateService.getMeta(data.owner_id)) {
+          this.metasStateService.setMeta(data.owner_id, vendedorNome, 0, 0);
+        }
+
+        this.metasStateService.incrementarReunioes(data.owner_id);
+
+        // Para calls manuais (deal_id começa com "manual_"), usar dados fornecidos
+        let clienteNome = data.cliente_nome || 'Cliente';
+        let clienteNumero = data.cliente_numero;
+        
+        // Se não for call manual, buscar dados do RD Station
+        if (!data.deal_id.startsWith('manual_')) {
+          try {
+            const deal = await this.dealsService.getDealById(data.deal_id);
+            if (deal?.name) clienteNome = deal.name;
+            if (!clienteNumero && deal?.custom_fields) {
+              clienteNumero =
+                (deal.custom_fields.numero as string) ||
+                (deal.custom_fields.telefone as string) ||
+                undefined;
+            }
+          } catch (error) {
+            this.logger.warn(`⚠️ Erro ao buscar deal ${data.deal_id} do RD Station:`, error);
+          }
+        }
+
+        // Salvar reunião no banco de dados
+        try {
+          await this.databaseOperationsService.saveReuniao(
+            data.owner_id,
+            vendedorNome,
+            data.deal_id,
+            clienteNome,
+            clienteNumero,
+          );
+        } catch (error) {
+          this.logger.error(`❌ Erro ao salvar reunião no banco: ${data.deal_id}`, error);
+        }
+      }
+    } else {
+      this.dealsStateService.removeDealNow(data.deal_id);
+    }
+
+    // Enviar atualização para todos os clientes na sala 'painel'
+    const currentState = this.dealsStateService.getAllDealsNow();
+    this.server.to('painel').emit('dashboardUpdated', currentState);
+    this.logger.log(`📤 Estado completo enviado para sala 'painel' (${currentState.length} deals)`);
+
+    // Enviar atualização de metas para todos os clientes
+    const currentMetas = this.metasStateService.getAllMetas();
+    this.server.emit('metasUpdated', currentMetas);
+    this.logger.log(`📤 Estado de metas enviado para todos os clientes`);
+
+    // Enviar confirmação individual para o cliente que enviou
+    this.logger.log(`✅ Atualização de deal processada: ${data.deal_id} (is_now: ${data.is_now})`);
+  }
+
+  /**
+   * Recebe atualização de flag "now" da página de controle via WebSocket
    * e envia para todos os clientes na sala 'painel'
    */
   @SubscribeMessage('update-deal-now')
@@ -344,28 +459,17 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Atualizar estado em memória
     if (data.is_now) {
-      this.dealsStateService.setDealNow(data.deal_id, {
-        deal_id: data.deal_id,
-        is_now: data.is_now,
-        updated_at: data.updated_at,
-        owner_id: data.owner_id,
-      });
+      // Nome do vendedor responsável pelo controle: enviado no payload ou obtido pelo owner_id
+      const vendedorNome = data.vendedor_nome?.trim() || (data.owner_id ? this.getVendedorNomeById(data.owner_id) : 'Vendedor');
       
-      // Atualizar reuniões em todo "now" definido
-      if (data.owner_id) {
-        // Nome do vendedor responsável pelo controle: enviado no payload ou obtido pelo owner_id
-        const vendedorNome = data.vendedor_nome?.trim() || this.getVendedorNomeById(data.owner_id);
-
-        // Garantir que o vendedor tenha meta (criar se não existir)
-        if (!this.metasStateService.getMeta(data.owner_id)) {
-          this.metasStateService.setMeta(data.owner_id, vendedorNome, 0, 0);
-        }
-
-        this.metasStateService.incrementarReunioes(data.owner_id);
-
-        // Buscar nome e número do cliente na deal (RD Station) - fonte de verdade
-        let clienteNome = data.cliente_nome || 'Cliente';
-        let clienteNumero = data.cliente_numero;
+      // Para deals manuais, usar dados fornecidos diretamente
+      // Para deals do RD Station, buscar dados do serviço
+      let clienteNome = data.cliente_nome || 'Cliente';
+      let clienteNumero = data.cliente_numero;
+      let valor = data.valor;
+      
+      // Se não for call manual, buscar dados do RD Station
+      if (!data.deal_id.startsWith('manual_')) {
         try {
           const deal = await this.dealsService.getDealById(data.deal_id);
           if (deal?.name) clienteNome = deal.name;
@@ -376,9 +480,33 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
               (deal.custom_fields.phone as string) ||
               undefined;
           }
+          if (!valor && deal?.total_price) {
+            valor = deal.total_price;
+          }
         } catch (err) {
-          this.logger.warn(`⚠️ Não foi possível buscar deal ${data.deal_id} para nome do cliente, usando dados do frontend`);
+          this.logger.warn(`⚠️ Não foi possível buscar deal ${data.deal_id} para dados do cliente, usando dados do frontend`);
         }
+      }
+      
+      this.dealsStateService.setDealNow(data.deal_id, {
+        deal_id: data.deal_id,
+        is_now: data.is_now,
+        updated_at: data.updated_at,
+        owner_id: data.owner_id,
+        vendedor: vendedorNome,
+        cliente_nome: clienteNome,
+        cliente_numero: clienteNumero,
+        valor: valor,
+      });
+      
+      // Atualizar reuniões em todo "now" definido
+      if (data.owner_id) {
+        // Garantir que o vendedor tenha meta (criar se não existir)
+        if (!this.metasStateService.getMeta(data.owner_id)) {
+          this.metasStateService.setMeta(data.owner_id, vendedorNome, 0, 0);
+        }
+
+        this.metasStateService.incrementarReunioes(data.owner_id);
 
         // Salvar reunião no MongoDB (contagem via GET /reunioes?vendedorId=xxx)
         this.databaseOperationsService.saveReuniao(
@@ -407,12 +535,18 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const updatedState = this.dealsStateService.getAllDealsNow();
     this.server.to('painel').emit('dashboardUpdated', updatedState);
     
+    // Obter dados completos do deal para enviar no evento individual
+    const dealState = updatedState.find(([id]) => id === data.deal_id)?.[1];
+    
     // Também enviar atualização individual para compatibilidade
     this.server.to('painel').emit('deal-now-updated', {
       deal_id: data.deal_id,
       is_now: data.is_now,
       updated_at: data.updated_at,
       owner_id: data.owner_id,
+      cliente_nome: dealState?.cliente_nome || data.cliente_nome,
+      cliente_numero: dealState?.cliente_numero || data.cliente_numero,
+      valor: dealState?.valor || data.valor,
     });
 
     // Enviar estado atualizado de vendedores para sala 'controle'
@@ -576,13 +710,18 @@ export class DealsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { cleared } = await this.dealsService.clearAllDealsNow();
       this.logger.log(`✅ ${cleared} deals tiveram flag "now" removida no RD Station`);
 
-      // 2. Limpar estado em memória
+      // 2. Deletar forecasts do banco de dados (do dia atual)
+      const hoje = new Date().toISOString().split('T')[0];
+      const forecastsDeleted = await this.databaseOperationsService.deleteForecastsByDate(hoje);
+      this.logger.log(`✅ ${forecastsDeleted} forecasts removidos do banco de dados`);
+
+      // 3. Limpar estado em memória
       this.dealsStateService.clear();
       this.metasStateService.clear();
       this.forecastsStateService.clearAll();
       this.logger.log('✅ Estado em memória limpo (deals, metas, forecasts)');
 
-      // 3. Emitir para todos os clientes para limpar a UI
+      // 4. Emitir para todos os clientes para limpar a UI
       this.server.to('painel').emit('dashboardUpdated', []);
       this.server.to('painel').emit('metasUpdated', []);
       this.server.to('painel').emit('forecastsUpdated', []);
